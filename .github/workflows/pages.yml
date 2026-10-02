@@ -27,6 +27,9 @@ jobs:
         env:
           NEXT_PUBLIC_BASE_PATH: /olaph
           NEXT_PUBLIC_SITE_URL: https://gunash2026.github.io/olaph
+      - run: node scripts/check-export.mjs
+        env:
+          NEXT_PUBLIC_BASE_PATH: /olaph
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

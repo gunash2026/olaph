@@ -67,6 +67,7 @@ export default async function Page({
       <main>
         {page === "pricing" ? (
           <>
+            <h1 className="sr-only">{t.links.pricing}</h1>
             <Pricing locale={locale} t={t} />
             <FAQ t={t} />
           </>
