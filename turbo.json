@@ -1,0 +1,10 @@
+{
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "out/**", "dist/**"],
+      "env": ["NEXT_PUBLIC_BASE_PATH", "NEXT_PUBLIC_SITE_URL"]
+    },
+    "typecheck": { "dependsOn": ["^typecheck"] }
+  }
+}

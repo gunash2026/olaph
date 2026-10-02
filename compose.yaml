@@ -1,0 +1,35 @@
+name: olaph
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-olaph}
+      POSTGRES_USER: ${POSTGRES_USER:-olaph_owner}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  valkey:
+    image: valkey/valkey:8-alpine
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?Set VALKEY_PASSWORD in .env}
+    command:
+      [
+        "sh",
+        "-c",
+        'exec valkey-server --requirepass "$${VALKEY_PASSWORD}" --appendonly yes',
+      ]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - valkey-data:/data
+volumes:
+  postgres-data:
+  valkey-data:

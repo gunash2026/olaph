@@ -1,0 +1,7 @@
+# OLAPH
+
+OLAPH is an industry-independent business operations platform under development.
+This release is a public product preview and a browser-local demonstration, not a production business system.
+Demo functions include materials, decimal-safe inventory movements, orders, partners, purchase requests, CSV import/export and activity history.
+Available interface languages: Turkish, English, Arabic (RTL), Chinese and Russian.
+Real company accounts, billing, AI, email, production stations and external integrations are not enabled.
