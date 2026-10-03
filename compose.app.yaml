@@ -159,6 +159,7 @@ services:
       target: web
       args:
         SITE_URL: ${APP_URL:-http://localhost:8080}
+        TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
     environment:
       SITE_ADDRESS: ${SITE_ADDRESS:-:80}
     ports: ["127.0.0.1:8080:80"]

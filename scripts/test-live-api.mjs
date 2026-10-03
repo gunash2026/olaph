@@ -17,7 +17,7 @@ async function account(name){const request=client(),email=`${name}-${randomUUID(
  assert.ok(message,'Verification email must arrive in the local Mailpit inbox');
  const content=await(await fetch(`${mail}/api/v1/message/${message.ID}`)).json(),url=content.Text.match(/https?:\/\/[^\s]+/)[0];
  assert.equal(new URL(url).origin,origin);await request(new URL(url).pathname+new URL(url).search,undefined,302);
- await request('/api/auth/sign-in/email',{email,password});return request;
+ await request('/api/auth/sign-in/email',{email,password});request.email=email;return request;
 }
 const alice=await account('alice');
 assert.deepEqual((await alice('/api/session')).workspaces,[]);
@@ -48,5 +48,10 @@ assert.equal((await alice(`/api/workspaces/${tenant}/resources/purchases`)).item
 for(let attempt=0;attempt<5;attempt++)await alice('/api/reauthenticate',{password:'incorrect-password',code:totp(secret)},401);
 await alice('/api/reauthenticate',{password,code:totp(secret)},429);
 const bob=await account('bob');await bob(`/api/workspaces/${tenant}/resources/materials`,undefined,403);
+for(let attempt=0;attempt<6;attempt++)await bob('/api/auth/sign-in/email',{email:bob.email,password});
+const attacker=client();
+for(let attempt=0;attempt<5;attempt++)await attacker('/api/auth/sign-in/email',{email:attempt%2?bob.email.toUpperCase():bob.email,password:'wrong-login-password'},401);
+const locked=await attacker('/api/auth/sign-in/email',{email:bob.email,password},429);
+assert.equal(locked.code,'LOGIN_TEMPORARILY_LOCKED');
 await client()(`/api/workspaces/${tenant}/resources/materials`,undefined,401);
 console.log('PASS: email verification, sessions, MFA enforcement, empty onboarding, tenant isolation, exact/idempotent inventory, negative-stock rejection, outbox/Valkey/SMTP delivery, recent-auth approval and account lock after five failed confirmations.');

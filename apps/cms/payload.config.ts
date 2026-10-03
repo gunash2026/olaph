@@ -7,7 +7,7 @@ import {
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";
 import sharp from "sharp";
-import { cmsEmail } from "./src/email.js";
+import { cmsEmail } from "./src/email";
 const role = (user: unknown) =>
   user && typeof user === "object" && "role" in user ? String(user.role) : "";
 const staff: Access = ({ req }) =>

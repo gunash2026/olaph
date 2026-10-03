@@ -21,6 +21,8 @@ CMS ayrı bir veritabanı rolüyle sadece `cms` şemasını kullanır. Bildirim 
 
 Üretim dağıtımı için `.env.local-stack` kullanılmaz. Ayrı sırlar, HTTPS origin, SMTP, Turnstile, virüs taraması, DNS ve yedekleme ayarlanır. PostgreSQL ve kimlik veritabanı adresleri istemci ortam değişkenlerinde bulunamaz. Migration sahibi API'ye verilmez. `.env*` dosyaları Git dışındadır.
 
+Turnstile için `TURNSTILE_SECRET` yalnızca API'ye, `TURNSTILE_SITE_KEY` web derlemesine verilir. Web paketi değişen site anahtarıyla yeniden derlenmelidir. Sunucu tokenı Cloudflare'da doğrular; hostname ve `auth` eylemi eşleşmeden kayıt, giriş ve parola yenileme talebi kabul edilmez. Üretim kurulumunda test anahtarları kullanılmaz. Gerçek site anahtarıyla tarayıcı kabul testi henüz yapılmamıştır.
+
 Geliştirmede yalnızca PostgreSQL ve Mailpit çalıştırmak için:
 
 ```powershell

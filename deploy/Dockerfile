@@ -6,7 +6,9 @@ COPY apps ./apps
 COPY packages ./packages
 RUN pnpm install --frozen-lockfile
 ARG SITE_URL=http://localhost:8080
+ARG TURNSTILE_SITE_KEY=
 ENV NEXT_PUBLIC_SITE_URL=$SITE_URL NEXT_PUBLIC_APP_ENABLED=true
+ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=$TURNSTILE_SITE_KEY
 RUN pnpm --filter @olaph/api build && pnpm --filter @olaph/worker build && pnpm --filter @olaph/web build
 
 FROM build AS cms-build

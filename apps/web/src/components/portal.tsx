@@ -29,6 +29,7 @@ import {
   type Field,
 } from "@/lib/portal-resources";
 import { Logo } from "./site";
+import { Captcha, captchaSiteKey } from "./captcha";
 type Row = Record<string, unknown>;
 type Workspace = {
   id: string;
@@ -95,7 +96,11 @@ export function Portal({ locale }: { locale: Locale }) {
     } | null>(null),
     [authMode, setAuthMode] = useState("login"),
     [totp, setTotp] = useState(""),
-    [backup, setBackup] = useState<string[]>([]);
+    [backup, setBackup] = useState<string[]>([]),
+    [captchaToken, setCaptchaToken] = useState(""),
+    [captchaNonce, setCaptchaNonce] = useState(0);
+  const captchaRequired =
+    Boolean(captchaSiteKey) && ["login", "signup", "forgot"].includes(authMode);
   const dialog = useRef<HTMLDialogElement>(null),
     form = useRef<HTMLFormElement>(null),
     operationKey = useRef("");
@@ -219,21 +224,32 @@ export function Portal({ locale }: { locale: Locale }) {
       email = String(data.get("email")),
       password = String(data.get("password"));
     await run(async () => {
+      if (captchaRequired && !captchaToken)
+        throw Error("Güvenlik doğrulamasını tamamlayın.");
+      const captchaOptions = {
+        headers: { "x-captcha-response": captchaToken },
+      };
       if (authMode === "signup") {
-        const result = await authClient.signUp.email({
-          email,
-          password,
-          name: String(data.get("name")),
-          callbackURL: href(locale, "portal"),
-        });
+        const result = await authClient.signUp.email(
+          {
+            email,
+            password,
+            name: String(data.get("name")),
+            callbackURL: href(locale, "portal"),
+          },
+          captchaOptions,
+        );
         if (result.error) throw Error(result.error.message);
         setNotice("Doğrulama bağlantısı e-posta adresinize gönderildi.");
         setAuthMode("login");
       } else if (authMode === "forgot") {
-        const result = await authClient.requestPasswordReset({
-          email,
-          redirectTo: href(locale, "portal"),
-        });
+        const result = await authClient.requestPasswordReset(
+          {
+            email,
+            redirectTo: href(locale, "portal"),
+          },
+          captchaOptions,
+        );
         if (result.error) throw Error(result.error.message);
         setNotice("Adres kayıtlıysa parola yenileme bağlantısı gönderildi.");
       } else if (authMode === "reset") {
@@ -253,12 +269,17 @@ export function Portal({ locale }: { locale: Locale }) {
         if (result.error) throw Error(result.error.message);
         await refreshSession();
       } else {
-        const result = await authClient.signIn.email({ email, password });
+        const result = await authClient.signIn.email(
+          { email, password },
+          captchaOptions,
+        );
         if (result.error) throw Error(result.error.message);
         if ("twoFactorRedirect" in (result.data || {})) setAuthMode("mfa");
         else await refreshSession();
       }
     });
+    setCaptchaToken("");
+    setCaptchaNonce((previous) => previous + 1);
   }
   const status = (
     <>
@@ -389,7 +410,16 @@ export function Portal({ locale }: { locale: Locale }) {
               />
             </label>
           )}
-          <button disabled={busy} className="button dark">
+          {captchaRequired && (
+            <Captcha
+              key={`${authMode}:${captchaNonce}`}
+              onToken={setCaptchaToken}
+            />
+          )}
+          <button
+            disabled={busy || (captchaRequired && !captchaToken)}
+            className="button dark"
+          >
             {busy
               ? "İşleniyor…"
               : authMode === "signup"

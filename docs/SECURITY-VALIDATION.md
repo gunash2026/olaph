@@ -18,4 +18,6 @@ CodeQL `js/insufficient-password-hash` bulgusu, HIBP sızmış parola sorgusunda
 
 ## Henüz kabul edilmemiş alanlar
 
-Üretim WAF/erişim geçidi, sır kasası, yedek geri yükleme tatbikatı, bağımsız sızma testi, hesap bazlı ilk giriş kilidi, canlı CAPTCHA doğrulaması ve şirket/KVKK incelemesi tamamlanmadan ticari yayına hazır kabul edilmez.
+Hesap bazlı ilk giriş kilidi ve CAPTCHA istemci/sunucu bağlantısı eklendi; gerçek site anahtarıyla CAPTCHA kabulü henüz yapılmadı. Üretim WAF/erişim geçidi, sır kasası, yedek geri yükleme tatbikatı, bağımsız sızma testi, canlı CAPTCHA doğrulaması ve şirket/KVKK incelemesi tamamlanmadan ticari yayına hazır kabul edilmez.
+
+`18a0350` sürümünde CodeQL taramasında açık bulgu kalmadığı API üzerinden doğrulandı. Gitleaks ve bağımlılık güvenlik işleri geçti. Gerçek Valkey/SMTP bildirimi ve Payload CMS veritabanı/taslak/yayıncı/yasal inceleme yetkileri entegrasyon testinde geçti. Yeni değişiklikler aynı kontrollerden tekrar geçirilir.

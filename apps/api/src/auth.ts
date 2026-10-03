@@ -1,11 +1,12 @@
 import { betterAuth } from "better-auth";
-import { twoFactor } from "better-auth/plugins";
+import { captcha, twoFactor } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import { hash, verify, Algorithm } from "@node-rs/argon2";
 import { createHash } from "node:crypto";
 import { config } from "./config.js";
 import { authPool } from "./db.js";
 import { sendMail } from "./mail.js";
+import { loginHooks } from "./login-security.js";
 async function hashPassword(password: string) {
   if (config.NODE_ENV === "production") {
     // HIBP's range protocol requires SHA-1 and receives only the first five
@@ -45,6 +46,7 @@ export const auth = betterAuth({
   secret: config.BETTER_AUTH_SECRET,
   database: authPool,
   trustedOrigins: [config.APP_URL],
+  hooks: loginHooks,
   emailAndPassword: {
     enabled: true,
     minPasswordLength: 12,
@@ -96,12 +98,21 @@ export const auth = betterAuth({
     window: 60,
     max: 60,
     customRules: {
-      "/sign-in/email": { window: 900, max: 5 },
+      "/sign-in/email": { window: 900, max: 20 },
       "/sign-up/email": { window: 3600, max: 5 },
       "/request-password-reset": { window: 900, max: 3 },
     },
   },
   plugins: [
+    captcha({
+      provider: "cloudflare-turnstile",
+      secretKey: config.TURNSTILE_SECRET || "",
+      endpoints: config.TURNSTILE_SECRET
+        ? ["/sign-up/email", "/sign-in/email", "/request-password-reset"]
+        : ["/__captcha_disabled_in_development"],
+      allowedHostnames: [new URL(config.APP_URL).hostname],
+      expectedAction: "auth",
+    }),
     twoFactor({
       issuer: "OLAPH",
       skipVerificationOnEnable: false,

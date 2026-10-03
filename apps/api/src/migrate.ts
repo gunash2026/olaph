@@ -52,6 +52,12 @@ try {
   await authPool.query(
     "CREATE TABLE IF NOT EXISTS app_reauth_attempts(user_id text PRIMARY KEY,failures integer NOT NULL DEFAULT 0,locked_until timestamptz)",
   );
+  await authPool.query(
+    "CREATE TABLE IF NOT EXISTS app_login_attempts(email_key text PRIMARY KEY,attempts integer NOT NULL CHECK(attempts BETWEEN 1 AND 5),window_ends_at timestamptz NOT NULL)",
+  );
+  await authPool.query(
+    "CREATE INDEX IF NOT EXISTS app_login_expiry ON app_login_attempts(window_ends_at)",
+  );
   console.log("Domain and authentication migrations completed.");
 } finally {
   await migration.end();
