@@ -127,10 +127,10 @@ export function Portal({ locale }: { locale: Locale }) {
     operationKey = useRef("");
   const tenant = session?.workspaces.find((x) => x.id === workspace),
     resource = portalResources[section];
-  const run = useCallback(async (fn: () => Promise<void>) => {
+  const run = useCallback(async (fn: () => Promise<void>, preserveNotice = false) => {
     setBusy(true);
     setError("");
-    setNotice("");
+    if (!preserveNotice) setNotice("");
     try {
       await fn();
     } catch (e) {
@@ -178,7 +178,7 @@ export function Portal({ locale }: { locale: Locale }) {
     setRows([]);
     setSearch("");
     if (workspace && (!tenant?.mfa_required || session?.user.twoFactorEnabled))
-      void run(refresh);
+      void run(refresh, true);
   }, [
     workspace,
     section,

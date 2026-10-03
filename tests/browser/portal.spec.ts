@@ -102,6 +102,7 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   await page
     .getByRole("button", { name: "Kurulumu doğrula", exact: true })
     .click();
+  await expect(page.getByRole("heading", { name: "Her adım, tek yerde.", exact: true })).toBeVisible();
   await expect(page.getByRole("status")).toHaveText(
     "İki aşamalı doğrulama etkin.",
   );
