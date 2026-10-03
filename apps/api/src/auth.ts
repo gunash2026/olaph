@@ -8,6 +8,9 @@ import { authPool } from "./db.js";
 import { sendMail } from "./mail.js";
 async function hashPassword(password: string) {
   if (config.NODE_ENV === "production") {
+    // HIBP's range protocol requires SHA-1 and receives only the first five
+    // hex characters. This digest is neither persisted nor used for login.
+    // Stored credentials use the Argon2id result returned below.
     const digest = createHash("sha1")
       .update(password)
       .digest("hex")

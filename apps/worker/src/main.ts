@@ -18,7 +18,7 @@ export function createNotificationQueue() {
 }
 if (require.main === module) {
   void startWorker().catch((error) => {
-    console.error(error.message);
+    console.error("Worker could not start", { type: error.name });
     process.exitCode = 1;
   });
 }

@@ -43,6 +43,7 @@ try {
     }
   }
   await migration.query("GRANT olaph_runtime TO olaph_login");
+  await migration.query("GRANT olaph_worker TO olaph_worker_login");
   const plan = await getMigrations(auth.options);
   await plan.runMigrations();
   await authPool.query(

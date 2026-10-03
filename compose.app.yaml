@@ -13,6 +13,16 @@ x-api-environment: &api-environment
   CLAMAV_HOST: clamav
   TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
   HOST: 0.0.0.0
+x-cms-environment: &cms-environment
+  NODE_ENV: production
+  CMS_PUBLIC_URL: ${CMS_PUBLIC_URL:-http://localhost:3100}
+  CMS_DATABASE_URL: postgresql://olaph_cms:${CMS_DB_PASSWORD:?Required}@postgres:5432/olaph
+  PAYLOAD_SECRET: ${PAYLOAD_SECRET:?Required}
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  CMS_MAIL_FROM: ${CMS_MAIL_FROM:-noreply@localhost}
 services:
   postgres:
     image: postgres:17-alpine
@@ -22,6 +32,8 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Required}
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Required}
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Required}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?Required}
+      CMS_DB_PASSWORD: ${CMS_DB_PASSWORD:?Required}
     volumes:
       - pg-data:/var/lib/postgresql/data
       - ./deploy/init-database.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro
@@ -70,6 +82,76 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+  valkey:
+    image: valkey/valkey:8-alpine
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?Required}
+    command:
+      [
+        sh,
+        -c,
+        'exec valkey-server --requirepass "$${VALKEY_PASSWORD}" --appendonly yes --maxmemory-policy noeviction',
+      ]
+    volumes: [valkey-data:/data]
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'REDISCLI_AUTH="$${VALKEY_PASSWORD}" valkey-cli ping | grep PONG',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  cms-migrate:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: cms
+    environment: *cms-environment
+    command: [node, node_modules/payload/bin.js, migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  cms:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: cms
+    environment: *cms-environment
+    ports: ["127.0.0.1:3100:3100"]
+    depends_on:
+      cms-migrate:
+        condition: service_completed_successfully
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: worker
+    environment:
+      WORKER_DATABASE_URL: postgresql://olaph_worker_login:${WORKER_DB_PASSWORD:?Required}@postgres:5432/olaph
+      VALKEY_HOST: valkey
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?Required}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-OLAPH <noreply@localhost>}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
   web:
     build:
       context: .
@@ -98,3 +180,4 @@ volumes:
   caddy-data:
   caddy-config:
   clam-data:
+  valkey-data:

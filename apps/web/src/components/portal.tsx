@@ -134,7 +134,8 @@ export function Portal({ locale }: { locale: Locale }) {
       form.current?.reset();
     }
   }, [modal]);
-  const path = (suffix: string) => `/workspaces/${workspace}/${suffix}`;
+  const path = (suffix: string) =>
+    `/workspaces/${encodeURIComponent(workspace)}/${suffix}`;
   const refresh = useCallback(async () => {
     if (!workspace) return;
     if (portalResources[section]) {

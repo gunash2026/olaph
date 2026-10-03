@@ -32,7 +32,15 @@ const movement={material_id:material.id,warehouse_id:warehouse.id,direction:'in'
 await alice(`/api/workspaces/${tenant}/movements`,movement,201);await alice(`/api/workspaces/${tenant}/movements`,movement,201);
 assert.equal((await alice(`/api/workspaces/${tenant}/resources/materials`)).items[0].quantity,'10.125000');
 await alice(`/api/workspaces/${tenant}/movements`,{...movement,direction:'out',quantity:'11',idempotency_key:randomUUID()},409);
+const recipient=`notifications-${randomUUID()}@example.test`;
+await alice(`/api/workspaces/${tenant}/resources/notification-rules`,{event:'purchase_pending',channel:'email',recipient,enabled:true},201);
 const purchase=await alice(`/api/workspaces/${tenant}/resources/purchases`,{material_id:material.id,quantity:'1',unit_price:'5',currency:'USD'},201);
+let notification;
+for(let attempt=0;attempt<40;attempt++){
+ const inbox=await(await fetch(`${mail}/api/v1/messages`)).json();notification=inbox.messages?.find(item=>item.To?.some(to=>to.Address===recipient));
+ if(notification)break;await new Promise(resolve=>setTimeout(resolve,500));
+}
+assert.ok(notification,'The committed purchase event must reach Mailpit through the restricted outbox worker and Valkey');
 await alice(`/api/workspaces/${tenant}/purchases/${purchase.id}/decision`,{decision:'approved'},428);
 await alice('/api/reauthenticate',{password,code:totp(secret)},201);
 await alice(`/api/workspaces/${tenant}/purchases/${purchase.id}/decision`,{decision:'approved'},201);
@@ -41,4 +49,4 @@ for(let attempt=0;attempt<5;attempt++)await alice('/api/reauthenticate',{passwor
 await alice('/api/reauthenticate',{password,code:totp(secret)},429);
 const bob=await account('bob');await bob(`/api/workspaces/${tenant}/resources/materials`,undefined,403);
 await client()(`/api/workspaces/${tenant}/resources/materials`,undefined,401);
-console.log('PASS: email verification, sessions, MFA enforcement, empty onboarding, tenant isolation, exact/idempotent inventory, negative-stock rejection, recent-auth approval and account lock after five failed confirmations.');
+console.log('PASS: email verification, sessions, MFA enforcement, empty onboarding, tenant isolation, exact/idempotent inventory, negative-stock rejection, outbox/Valkey/SMTP delivery, recent-auth approval and account lock after five failed confirmations.');

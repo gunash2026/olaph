@@ -37,6 +37,14 @@ jobs:
       PGHOST: 127.0.0.1
       APP_DB_PASSWORD: ci-app
       AUTH_DB_PASSWORD: ci-auth
+      WORKER_DB_PASSWORD: ci-worker
+      CMS_DB_PASSWORD: ci-cms
+      WORKER_DATABASE_URL: postgresql://olaph_worker_login:ci-worker@127.0.0.1:5432/olaph
+      CMS_DATABASE_URL: postgresql://olaph_cms:ci-cms@127.0.0.1:5432/olaph
+      PAYLOAD_SECRET: ci-only-content-secret-never-deployed-2026
+      VALKEY_HOST: 127.0.0.1
+      VALKEY_PASSWORD: ci-valkey
+      MAIL_FROM: OLAPH <noreply@example.test>
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v4
@@ -48,16 +56,23 @@ jobs:
       - run: sh deploy/init-database.sh
       - run: pnpm --filter @olaph/api build
       - run: pnpm --filter @olaph/api migrate
+      - run: pnpm --filter @olaph/worker build
+      - name: Start private notification queue
+        run: docker run --detach --name olaph-valkey --publish 127.0.0.1:6379:6379 valkey/valkey:8-alpine valkey-server --requirepass ci-valkey --appendonly yes --maxmemory-policy noeviction
       - name: Start API and verify real PostgreSQL workflows
         run: |
           node apps/api/dist/main.js > api-test.log 2>&1 &
           API_PID=$!
-          trap 'kill "$API_PID" || true' EXIT
+          node apps/worker/dist/main.js > worker-test.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill "$API_PID" "$WORKER_PID" || true' EXIT
           for attempt in $(seq 1 30); do
             if curl -fsS http://127.0.0.1:4000/api/ready >/dev/null; then break; fi
             sleep 1
           done
           node scripts/test-live-api.mjs
+      - run: pnpm --filter @olaph/cms migrate
+      - run: pnpm --filter @olaph/cms test:integration
       - name: Diagnostics on failure
         if: failure()
-        run: tail -n 80 api-test.log || true
+        run: tail -n 80 api-test.log worker-test.log || true

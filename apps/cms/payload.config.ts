@@ -7,6 +7,7 @@ import {
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";
 import sharp from "sharp";
+import { cmsEmail } from "./src/email.js";
 const role = (user: unknown) =>
   user && typeof user === "object" && "role" in user ? String(user.role) : "";
 const staff: Access = ({ req }) =>
@@ -27,7 +28,9 @@ const collections: CollectionConfig[] = [
       maxLoginAttempts: 5,
       lockTime: 900000,
       cookies: {
-        secure: process.env.NODE_ENV === "production",
+        secure: process.env.CMS_PUBLIC_URL
+          ? new URL(process.env.CMS_PUBLIC_URL).protocol === "https:"
+          : process.env.NODE_ENV === "production",
         sameSite: "Strict",
       },
     },
@@ -38,6 +41,17 @@ const collections: CollectionConfig[] = [
       delete: admin,
       admin: ({ req }) =>
         ["admin", "editor", "publisher"].includes(role(req.user)),
+    },
+    hooks: {
+      beforeChange: [
+        ({ data, operation, req }) => {
+          if (operation === "create" && !req.user && !req.context.bootstrap)
+            throw Error(
+              "Use the protected bootstrap command to create the first administrator.",
+            );
+          return data;
+        },
+      ],
     },
     fields: [
       { name: "name", type: "text", required: true },
@@ -66,7 +80,12 @@ const collections: CollectionConfig[] = [
         useAsTitle: "title",
         defaultColumns: ["title", "slug", "_status", "updatedAt"],
       },
-      access: { read: published, create: staff, update: staff, delete: admin },
+      access: {
+        read: slug === "email-templates" ? staff : published,
+        create: staff,
+        update: staff,
+        delete: admin,
+      },
       versions: { drafts: { autosave: { interval: 5000 } }, maxPerDoc: 30 },
       fields: [
         { name: "title", type: "text", localized: true, required: true },
@@ -95,7 +114,7 @@ const collections: CollectionConfig[] = [
         {
           name: "_status",
           type: "select",
-          options: ["draft", "published"],
+          options: [],
           defaultValue: "draft",
           access: { create: publishField, update: publishField },
         },
@@ -104,7 +123,8 @@ const collections: CollectionConfig[] = [
         beforeChange: [
           ({ data, req, originalDoc }) => {
             if (
-              data._status === "published" &&
+              (data._status === "published" ||
+                originalDoc?._status === "published") &&
               !["admin", "publisher"].includes(role(req.user))
             )
               throw Error("Publisher approval required.");
@@ -174,6 +194,9 @@ const collections: CollectionConfig[] = [
 export default buildConfig({
   secret: process.env.PAYLOAD_SECRET || "",
   sharp,
+  email: cmsEmail,
+  serverURL: process.env.CMS_PUBLIC_URL || "http://localhost:3100",
+  csrf: [process.env.CMS_PUBLIC_URL || "http://localhost:3100"],
   editor: lexicalEditor(),
   admin: {
     user: "staff",

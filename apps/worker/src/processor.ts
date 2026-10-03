@@ -14,6 +14,20 @@ export async function startWorker() {
     connectionString: process.env.WORKER_DATABASE_URL,
     max: 3,
   });
+  const privileges = (
+    await db.query(
+      "SELECT rolsuper,rolbypassrls,has_table_privilege(current_user,'materials','SELECT') AS catalog_access FROM pg_roles WHERE rolname=current_user",
+    )
+  ).rows[0];
+  if (
+    !privileges ||
+    privileges.rolsuper ||
+    privileges.rolbypassrls ||
+    privileges.catalog_access
+  ) {
+    await db.end();
+    throw Error("WORKER_ROLE_MUST_BE_RESTRICTED_TO_OUTBOX");
+  }
   const connection = {
     host: process.env.VALKEY_HOST,
     port: Number(process.env.VALKEY_PORT || 6379),
