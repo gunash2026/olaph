@@ -1,5 +1,4 @@
-// Deliberately fail closed: email, AI and supplier actions need explicit adapters.
-// Do not attach a consumer that acknowledges work without performing it.
+import { startWorker } from "./processor";
 import { Queue } from "bullmq";
 export function createNotificationQueue() {
   if (!process.env.VALKEY_HOST) throw Error("VALKEY_HOST is required");
@@ -18,6 +17,8 @@ export function createNotificationQueue() {
   });
 }
 if (require.main === module) {
-  console.error("Worker adapters are not configured. No jobs were consumed.");
-  process.exitCode = 1;
+  void startWorker().catch((error) => {
+    console.error(error.message);
+    process.exitCode = 1;
+  });
 }

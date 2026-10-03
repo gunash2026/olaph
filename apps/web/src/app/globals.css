@@ -332,7 +332,11 @@ ul {
 .hero-visual > img {
   width: 100%;
   mix-blend-mode: multiply;
-  mask-image: radial-gradient(ellipse 64% 63% at 50% 53%, black 56%, transparent 92%);
+  mask-image: radial-gradient(
+    ellipse 64% 63% at 50% 53%,
+    black 56%,
+    transparent 92%
+  );
 }
 .scene-label {
   position: absolute;

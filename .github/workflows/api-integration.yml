@@ -1,0 +1,63 @@
+name: API integration
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  postgres-auth:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: olaph_owner
+          POSTGRES_PASSWORD: ci-disposable-password
+          POSTGRES_DB: olaph
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd 'pg_isready -U olaph_owner -d olaph'
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ["1025:1025", "8025:8025"]
+    env:
+      NODE_ENV: test
+      APP_URL: http://127.0.0.1:4000
+      BETTER_AUTH_SECRET: ci-only-identity-secret-never-deployed-2026
+      DATABASE_URL: postgresql://olaph_login:ci-app@127.0.0.1:5432/olaph
+      AUTH_DATABASE_URL: postgresql://olaph_auth:ci-auth@127.0.0.1:5432/olaph
+      MIGRATION_DATABASE_URL: postgresql://olaph_owner:ci-disposable-password@127.0.0.1:5432/olaph
+      SMTP_HOST: 127.0.0.1
+      SMTP_PORT: "1025"
+      PGPASSWORD: ci-disposable-password
+      POSTGRES_USER: olaph_owner
+      POSTGRES_DB: olaph
+      PGHOST: 127.0.0.1
+      APP_DB_PASSWORD: ci-app
+      AUTH_DB_PASSWORD: ci-auth
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: sh deploy/init-database.sh
+      - run: pnpm --filter @olaph/api build
+      - run: pnpm --filter @olaph/api migrate
+      - name: Start API and verify real PostgreSQL workflows
+        run: |
+          node apps/api/dist/main.js > api-test.log 2>&1 &
+          API_PID=$!
+          trap 'kill "$API_PID" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4000/api/ready >/dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/test-live-api.mjs
+      - name: Diagnostics on failure
+        if: failure()
+        run: tail -n 80 api-test.log || true

@@ -1,4 +1,6 @@
-# OLAPH v0.1 — kapsam ve durum
+# OLAPH v0.1 — ilk yayın kaydı
+
+Bu belge ilk yayının tarihsel kapsamıdır. 3 Ekim'de başlayan sunucu ve portal geliştirmesinin güncel durumu [tamamlanma kaydında](COMPLETION-TRACKER.md), yerel çalıştırma adımları [kurulum belgesindedir](LOCAL-SETUP.md).
 
 Bu teslim, 2 Ekim 2026 tarihli briefin **ilk canlı ürün önizlemesidir**. Sürüm 1'in tamamlanmış ticari hizmeti değildir. Briefte yer alan özel firma bilgileri bu depoya taşınmamıştır.
 

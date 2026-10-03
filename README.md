@@ -1,5 +1,7 @@
 # OLAPH
 
+Sunucu ve portal geliştirmesinin güncel kapsamı: [tamamlanma kaydı](docs/COMPLETION-TRACKER.md). Yerel kurulum: [Docker ve API adımları](docs/LOCAL-SETUP.md). Canlı GitHub yayını halen bir önizlemedir.
+
 **Her süreç. Tek, net bir bakış.**
 
 Sektörden bağımsız işletme yönetimi için ilk canlı ürün önizlemesi. Ticari SaaS henüz açılmamıştır; demo verisi yalnızca tarayıcıda saklanır.

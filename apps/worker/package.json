@@ -8,6 +8,12 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "bullmq": "^5.0.0"
+    "bullmq": "^5.0.0",
+    "pg": "^8.16.0",
+    "nodemailer": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.15.0",
+    "@types/nodemailer": "^7.0.0"
   }
 }

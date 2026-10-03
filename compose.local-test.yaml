@@ -1,0 +1,5 @@
+services:
+  postgres:
+    ports: ["127.0.0.1:54320:5432"]
+  mailpit:
+    ports: ["127.0.0.1:1025:1025"]

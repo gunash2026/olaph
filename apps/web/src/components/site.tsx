@@ -82,7 +82,7 @@ export function Header({
             ))}
           </select>
         </label>
-        <a href={href(locale, "app")} className="button dark compact">
+        <a href={href(locale, "portal")} className="button dark compact">
           {t.login}
         </a>
         <button

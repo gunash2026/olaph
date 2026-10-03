@@ -3,7 +3,13 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": [".next/**", "out/**", "dist/**"],
-      "env": ["NEXT_PUBLIC_BASE_PATH", "NEXT_PUBLIC_SITE_URL"]
+      "env": [
+        "NEXT_PUBLIC_BASE_PATH",
+        "NEXT_PUBLIC_SITE_URL",
+        "NEXT_PUBLIC_APP_ENABLED",
+        "PAYLOAD_SECRET",
+        "CMS_DATABASE_URL"
+      ]
     },
     "typecheck": { "dependsOn": ["^typecheck"] }
   }
