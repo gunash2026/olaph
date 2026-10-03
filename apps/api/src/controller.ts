@@ -280,6 +280,54 @@ export class ApiController {
       items: (await db.query("SELECT * FROM workspace_members()")).rows,
     }));
   }
+  @Post("workspaces/:tenant/settings") async settings(
+    @Req() req: Request,
+    @Param("tenant") tenant: string,
+    @Body() body: unknown,
+  ) {
+    const current = await access(req, tenant, "settings:write", true);
+    const input = resource("settings").schema.strict().parse(body);
+    return transaction(current.user.id, tenant, async (db) => {
+      const row = (
+        await db.query(
+          "UPDATE tenant_settings SET locale=$1,timezone=$2,approval_limit=$3,retention_days=$4 WHERE tenant_id=$5 RETURNING *",
+          [
+            input.locale,
+            input.timezone,
+            input.approval_limit,
+            input.retention_days,
+            tenant,
+          ],
+        )
+      ).rows[0];
+      if (!row) throw new NotFoundException();
+      return row;
+    });
+  }
+  @Post("workspaces/:tenant/reservations/:record/finish")
+  async finishReservation(
+    @Req() req: Request,
+    @Param("tenant") tenant: string,
+    @Param("record") record: string,
+    @Body() body: unknown,
+  ) {
+    const current = await access(req, tenant, "stock:write");
+    const input = z
+      .object({ action: z.enum(["released", "consumed"]), idempotency_key: id })
+      .strict()
+      .parse(body);
+    id.parse(record);
+    return transaction(current.user.id, tenant, async (db) => {
+      await entitlement(db);
+      return (
+        await db.query("SELECT finish_reservation($1,$2,$3) status", [
+          record,
+          input.action,
+          input.idempotency_key,
+        ])
+      ).rows[0];
+    });
+  }
   @Post("workspaces/:tenant/invitations") async invite(
     @Req() req: Request,
     @Param("tenant") tenant: string,

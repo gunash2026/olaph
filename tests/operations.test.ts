@@ -15,6 +15,7 @@ beforeAll(async () => {
     "0003_identity",
     "0004_entitlements",
     "0005_controls",
+    "0006_membership_controls",
   ])
     await db.exec(
       await readFile(`packages/database/migrations/${name}.sql`, "utf8"),
@@ -27,6 +28,20 @@ beforeAll(async () => {
   other = (
     await db.query<{ id: string }>("SELECT create_workspace('Workspace B') id")
   ).rows[0].id;
+  await db.query("SELECT set_config('app.tenant_id',$1,false)", [other]);
+  const delegated = (
+    await db.query<{ id: string }>(
+      "SELECT save_role(NULL,'delegated',ARRAY['settings:read','settings:write'],true) id",
+    )
+  ).rows[0].id;
+  await db.query(
+    "INSERT INTO memberships(tenant_id,user_id,role,role_id,permissions) SELECT $1,'limited','delegated',$2,permissions FROM tenant_roles WHERE id=$2",
+    [other, delegated],
+  );
+  await db.query(
+    "INSERT INTO memberships(tenant_id,user_id,role,role_id,permissions,active) SELECT $1,'inactive',name,id,permissions,false FROM tenant_roles WHERE tenant_id=$1 AND name='production'",
+    [other],
+  );
   await db.query(
     "SELECT set_config('app.user_id','alice',false),set_config('app.tenant_id',$1,false)",
     [tenant],
@@ -127,6 +142,30 @@ it("holds stock for an order and prevents double allocation", async () => {
     ).rejects.toThrow("INSUFFICIENT_AVAILABLE_STOCK");
   });
 });
+it("consumes a reservation once even when its confirmation is retried", async () => {
+  await actor(async () => {
+    await move("10");
+    const reservation = (
+      await db.query<{ id: string }>("SELECT reserve_stock($1,$2,$3,3) id", [
+        order,
+        material,
+        warehouse,
+      ])
+    ).rows[0].id;
+    for (let retry = 0; retry < 2; retry++)
+      await db.query(
+        "SELECT finish_reservation($1,'consumed','70000000-0000-4000-8000-000000000002')",
+        [reservation],
+      );
+    expect(
+      (
+        await db.query<{ quantity: string; reserved: string }>(
+          "SELECT quantity,reserved FROM stock_balances",
+        )
+      ).rows[0],
+    ).toEqual({ quantity: "7.000000", reserved: "0.000000" });
+  });
+});
 it("prevents recipes from creating indirect cycles", async () => {
   await actor(async () => {
     const a = (
@@ -179,6 +218,31 @@ it("requires the invitation verified email to match", async () => {
     ).rejects.toThrow("INVALID_INVITATION");
   });
 });
+it("accepts a valid invitation for its verified recipient", async () => {
+  await actor(async () => {
+    const role = (
+      await db.query<{ id: string }>(
+        "SELECT id FROM tenant_roles WHERE name='production'",
+      )
+    ).rows[0].id;
+    await db.query(
+      "SELECT invite_member('correct@example.test',$1,'valid-token')",
+      [role],
+    );
+    await db.query("SELECT set_config('app.user_id','invited-user',true)");
+    expect(
+      (
+        await db.query<{ id: string }>(
+          "SELECT accept_invitation('valid-token','correct@example.test') id",
+        )
+      ).rows[0].id,
+    ).toBe(tenant);
+    expect(
+      (await db.query<{ role: string }>("SELECT * FROM workspace_summaries()"))
+        .rows[0].role,
+    ).toBe("production");
+  });
+});
 it("all operational tables reject a forged tenant context", async () => {
   await actor(
     async () => {
@@ -198,6 +262,61 @@ it("all operational tables reject a forged tenant context", async () => {
       ).rejects.toThrow("FORBIDDEN");
     },
     "alice",
+    other,
+  );
+});
+it("a delegated manager cannot invite a role exceeding their own permissions", async () => {
+  await actor(
+    async () => {
+      const role = (
+        await db.query<{ id: string }>(
+          "SELECT id FROM tenant_roles WHERE name='manager'",
+        )
+      ).rows[0].id;
+      await expect(
+        db.query(
+          "SELECT invite_member('escalation@example.test',$1,'escalation-token')",
+          [role],
+        ),
+      ).rejects.toThrow("FORBIDDEN");
+    },
+    "limited",
+    other,
+  );
+});
+it("a delegated manager cannot assign a stronger role to another member", async () => {
+  await actor(
+    async () => {
+      const role = (
+        await db.query<{ id: string }>(
+          "SELECT id FROM tenant_roles WHERE name='manager'",
+        )
+      ).rows[0].id;
+      await expect(
+        db.query("SELECT set_member('inactive',$1,true)", [role]),
+      ).rejects.toThrow("FORBIDDEN");
+    },
+    "limited",
+    other,
+  );
+});
+it("reactivating a member cannot bypass the subscription seat limit", async () => {
+  await db.query(
+    "INSERT INTO memberships(tenant_id,user_id,role,role_id,permissions) SELECT $1,'seat-'||n,name,id,permissions FROM tenant_roles CROSS JOIN generate_series(1,3) n WHERE tenant_id=$1 AND name='production'",
+    [other],
+  );
+  await actor(
+    async () => {
+      const role = (
+        await db.query<{ id: string }>(
+          "SELECT id FROM tenant_roles WHERE name='production'",
+        )
+      ).rows[0].id;
+      await expect(
+        db.query("SELECT set_member('inactive',$1,true)", [role]),
+      ).rejects.toThrow("SEAT_LIMIT");
+    },
+    "bob",
     other,
   );
 });

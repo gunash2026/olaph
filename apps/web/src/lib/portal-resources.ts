@@ -14,6 +14,29 @@ export type PortalResource = {
   readOnly?: boolean;
   immutable?: boolean;
 };
+export function permissionLabel(permission: string) {
+  const [area, action] = permission.split(":");
+  const areas: Record<string, string> = {
+    catalog: "Katalog",
+    stock: "Stok",
+    orders: "Sipariş",
+    purchasing: "Satın alma",
+    cost: "Maliyet",
+    settings: "Ayarlar ve üyeler",
+    audit: "Denetim kaydı",
+    production: "Üretim",
+    hr: "Personel",
+    billing: "Abonelik",
+    profile: "Hesabım",
+    reports: "Raporlar",
+  };
+  const actions: Record<string, string> = {
+    read: "görüntüle",
+    write: "ekle ve düzenle",
+    approve: "onayla",
+  };
+  return `${areas[area] || area}: ${actions[action] || action}`;
+}
 const f = (
   key: string,
   label: string,
@@ -274,6 +297,7 @@ export const portalResources: Record<string, PortalResource> = {
       choices("event", "Olay", ["low_stock", "purchase_pending", "order_due"]),
       choices("channel", "Kanal", ["email", "in_app"]),
       f("recipient", "Alıcı e-posta", "email"),
+      f("enabled", "Bildirim etkin", "checkbox"),
     ],
   },
   notifications: {
@@ -289,6 +313,18 @@ export const portalResources: Record<string, PortalResource> = {
     permission: "settings",
     readOnly: true,
     fields: [],
+  },
+  settings: {
+    title: "Firma ayarları",
+    group: "Yönetim",
+    permission: "settings",
+    readOnly: true,
+    fields: [
+      choices("locale", "Firma dili", ["tr", "en", "ar", "zh", "ru"]),
+      f("timezone", "Saat dilimi"),
+      f("approval_limit", "Onay eşiği", "decimal"),
+      f("retention_days", "Saklama süresi (gün)", "number"),
+    ],
   },
   subscriptions: {
     title: "Abonelik",

@@ -475,3 +475,19 @@
     font-size: 28px;
   }
 }
+.portal-permissions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+.portal-permissions > label {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.portal-dialog input[type="checkbox"] {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--copper);
+}

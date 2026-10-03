@@ -52,6 +52,16 @@ class ApiErrors implements ExceptionFilter {
       response.status(403).json({ message: "PERMISSION_DENIED" });
       return;
     }
+    if (
+      [
+        "FORBIDDEN",
+        "ADMIN_ROLE_PROTECTED",
+        "MFA_REQUIRED_FOR_PRIVILEGED_ROLE",
+      ].includes(sql.message || "")
+    ) {
+      response.status(403).json({ message: sql.message });
+      return;
+    }
     if (allowed.includes(sql.message || "")) {
       response.status(409).json({ message: sql.message });
       return;

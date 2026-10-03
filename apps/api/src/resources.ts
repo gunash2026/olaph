@@ -260,8 +260,15 @@ export const resources: Record<string, Resource> = {
     immutable: true,
     schema: z.object({
       locale: z.enum(["tr", "en", "ar", "zh", "ru"]),
-      timezone: text,
-      approval_limit: quantity,
+      timezone: text.refine((value) => {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: value });
+          return true;
+        } catch {
+          return false;
+        }
+      }, "Use a valid IANA timezone"),
+      approval_limit: price,
       retention_days: z.number().int().min(30).max(3650),
     }),
   },

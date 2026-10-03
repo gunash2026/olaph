@@ -17,6 +17,14 @@ docker compose --env-file .env.local-stack -f compose.app.yaml run --rm -e CMS_A
 
 CMS ayrı bir veritabanı rolüyle sadece `cms` şemasını kullanır. Bildirim işçisi sadece outbox tablosuna erişir; API'nin katalog ve kullanıcı tablolarını okuyamaz. Valkey parolalıdır ve dışarı port açmaz. CMS portu yalnızca loopback üzerindedir; canlı ortamda personel erişimi VPN/erişim geçidi, MFA ve HTTPS arkasına alınmalıdır.
 
+Daha önce oluşturulan yerel PostgreSQL diskini koruyarak güncelleme yapmak için önce `node scripts/setup-local.mjs` çalıştırın. Eksik servis anahtarları eklenir, mevcut parolalar korunur. PostgreSQL servisini güncel ortamla başlatıp yeni rolleri tekrar çalıştırılabilir kurulumla ekleyin; ardından tam yığını başlatın. Bu işlem mevcut verileri silmez.
+
+```powershell
+docker compose --env-file .env.local-stack -f compose.app.yaml up -d postgres
+docker compose --env-file .env.local-stack -f compose.app.yaml exec postgres sh /docker-entrypoint-initdb.d/01-roles.sh
+docker compose --env-file .env.local-stack -f compose.app.yaml up --build -d
+```
+
 İlk kullanıcı kendi e-posta adresini doğrular; boş firma oluşturur; TOTP kurulumunu tamamlar. Katalog ve birimler önceden doldurulmaz. Admin ve manager için MFA zorunludur. Kritik onay ve davetlerde Güvenlik ekranından beş dakikalık yeniden doğrulama yapılır.
 
 Üretim dağıtımı için `.env.local-stack` kullanılmaz. Ayrı sırlar, HTTPS origin, SMTP, Turnstile, virüs taraması, DNS ve yedekleme ayarlanır. PostgreSQL ve kimlik veritabanı adresleri istemci ortam değişkenlerinde bulunamaz. Migration sahibi API'ye verilmez. `.env*` dosyaları Git dışındadır.

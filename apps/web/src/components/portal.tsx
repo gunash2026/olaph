@@ -26,6 +26,7 @@ import {
   portalResources,
   columnLabels,
   valueLabels,
+  permissionLabel,
   type Field,
 } from "@/lib/portal-resources";
 import { Logo } from "./site";
@@ -75,6 +76,15 @@ const errors: Record<string, string> = {
     "Dosyada katalogda bulunmayan kodlar var. Önce katalog kayıtlarını oluşturun.",
   IMPORT_ALREADY_PROCESSED: "Bu dosya daha önce işlendi.",
   REQUEST_FAILED: "İşlem tamamlanamadı. Tekrar deneyin.",
+  FORBIDDEN: "Bu rolü atamaya yetkiniz yok.",
+  ADMIN_ROLE_PROTECTED: "Firma sahibinin rolü bu ekrandan değiştirilemez.",
+  MFA_REQUIRED_FOR_PRIVILEGED_ROLE:
+    "Bu izinler için iki aşamalı doğrulama zorunludur.",
+  SEAT_LIMIT: "Paketinizin kullanıcı sınırına ulaşıldı.",
+  LOGIN_TEMPORARILY_LOCKED:
+    "Beş hatalı giriş nedeniyle hesap 15 dakika kilitlendi.",
+  REAUTHENTICATION_LOCKED:
+    "Beş hatalı doğrulama nedeniyle işlem 15 dakika kilitlendi.",
 };
 export function Portal({ locale }: { locale: Locale }) {
   const [session, setSession] = useState<Session | null>(null),
@@ -181,9 +191,20 @@ export function Portal({ locale }: { locale: Locale }) {
           ),
         ],
         loaded: Record<string, Row[]> = {};
-      for (const key of references)
+      for (const key of references) {
         loaded[key] = (await api(path(`resources/${key}`))).items;
+        if (key === "roles")
+          loaded[key] = loaded[key].filter(
+            (row) =>
+              row.name !== "admin" &&
+              Array.isArray(row.permissions) &&
+              row.permissions.every((permission) =>
+                tenant?.permissions.includes(String(permission)),
+              ),
+          );
+      }
       setLookups(loaded);
+      operationKey.current = "";
       setModal({ title, fields, path: target, values, method });
     });
   }
@@ -193,6 +214,14 @@ export function Portal({ locale }: { locale: Locale }) {
     await run(async () => {
       const payload: Row = {};
       for (const field of modal!.fields) {
+        if (field.type === "checkbox") {
+          payload[field.key] = data.has(field.key);
+          continue;
+        }
+        if (field.type === "permissions") {
+          payload[field.key] = data.getAll(field.key).map(String);
+          continue;
+        }
         const raw = String(data.get(field.key) || "");
         if (!raw && field.optional) {
           if (field.relation) payload[field.key] = null;
@@ -205,10 +234,17 @@ export function Portal({ locale }: { locale: Locale }) {
               ? new Date(raw).toISOString()
               : raw;
       }
-      if (modal!.path.endsWith("/movements")) {
+      if (
+        modal!.path.endsWith("/movements") ||
+        modal!.path.endsWith("/finish")
+      ) {
         operationKey.current ||= crypto.randomUUID();
         payload.idempotency_key = operationKey.current;
       }
+      if (modal!.path.endsWith("/roles"))
+        payload.id = modal!.values?.id || null;
+      if (modal!.path.endsWith("/members"))
+        payload.user_id = modal!.values?.user_id;
       if (modal!.values?.version) payload.version = modal!.values.version;
       await api(modal!.path, payload, modal!.method);
       operationKey.current = "";
@@ -216,8 +252,24 @@ export function Portal({ locale }: { locale: Locale }) {
       setModal(null);
       setNotice("Kaydedildi.");
       await refresh();
+      if (modal!.path.endsWith("/roles") || modal!.path.endsWith("/members"))
+        await refreshSession();
     });
   }
+  const roleFields: Field[] = [
+    { key: "name", label: "Rol adı" },
+    {
+      key: "permissions",
+      label: "İzinler",
+      type: "permissions",
+      options: tenant?.permissions || [],
+    },
+    {
+      key: "mfa_required",
+      label: "İki aşamalı doğrulama zorunlu",
+      type: "checkbox",
+    },
+  ];
   async function authenticate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget),
@@ -841,6 +893,34 @@ export function Portal({ locale }: { locale: Locale }) {
               </div>
             </div>
             <div className="portal-toolbar">
+              {section === "roles" &&
+                tenant?.permissions.includes("settings:write") && (
+                  <button
+                    className="button dark"
+                    onClick={() =>
+                      void openForm("Yeni rol", roleFields, path("roles"))
+                    }
+                  >
+                    Rol oluştur
+                  </button>
+                )}
+              {section === "settings" &&
+                rows[0] &&
+                tenant?.permissions.includes("settings:write") && (
+                  <button
+                    className="button dark"
+                    onClick={() =>
+                      void openForm(
+                        "Firma ayarları",
+                        resource.fields,
+                        path("settings"),
+                        rows[0],
+                      )
+                    }
+                  >
+                    Ayarları düzenle
+                  </button>
+                )}
               <label>
                 <Search size={16} />
                 <input
@@ -950,6 +1030,72 @@ export function Portal({ locale }: { locale: Locale }) {
               locale={locale}
               action={(row) => (
                 <>
+                  {section === "roles" &&
+                    row.name !== "admin" &&
+                    tenant?.permissions.includes("settings:write") && (
+                      <button
+                        onClick={() =>
+                          void openForm(
+                            "Rolü düzenle",
+                            roleFields,
+                            path("roles"),
+                            row,
+                          )
+                        }
+                      >
+                        İzinleri düzenle
+                      </button>
+                    )}
+                  {section === "members" &&
+                    row.user_id !== session.user.id &&
+                    row.role !== "admin" &&
+                    tenant?.permissions.includes("settings:write") && (
+                      <button
+                        onClick={() =>
+                          void openForm(
+                            "Üye erişimini düzenle",
+                            [
+                              {
+                                key: "role_id",
+                                label: "Rol",
+                                relation: "roles",
+                              },
+                              {
+                                key: "active",
+                                label: "Üye erişimi etkin",
+                                type: "checkbox",
+                              },
+                            ],
+                            path("members"),
+                            row,
+                          )
+                        }
+                      >
+                        Erişimi düzenle
+                      </button>
+                    )}
+                  {section === "reservations" &&
+                    row.status === "held" &&
+                    tenant?.permissions.includes("stock:write") && (
+                      <button
+                        onClick={() =>
+                          void openForm(
+                            "Rezerve stok işlemi",
+                            [
+                              {
+                                key: "action",
+                                label:
+                                  "Serbest bırakma stoğu ayırmayı kaldırır; kullanım stok çıkışı oluşturur.",
+                                options: ["released", "consumed"],
+                              },
+                            ],
+                            path(`reservations/${row.id}/finish`),
+                          )
+                        }
+                      >
+                        Serbest bırak / kullan
+                      </button>
+                    )}
                   {resource &&
                     !resource.immutable &&
                     !resource.readOnly &&
@@ -1080,56 +1226,86 @@ export function Portal({ locale }: { locale: Locale }) {
               ×
             </button>
           </div>
-          {modal?.fields.map((field) => (
-            <label key={field.key}>
-              {field.label}
-              {field.optional ? " (isteğe bağlı)" : ""}
-              {field.options || field.relation ? (
-                <select
-                  name={field.key}
-                  required={!field.optional}
-                  defaultValue={String(modal.values?.[field.key] || "")}
-                >
-                  <option value="">Seçin</option>
-                  {field.options?.map((value) => (
-                    <option key={value} value={value}>
-                      {valueLabels[value] || value}
-                    </option>
+          {modal?.fields.map((field) =>
+            field.type === "permissions" ? (
+              <fieldset key={field.key}>
+                <legend>{field.label}</legend>
+                <div className="portal-permissions">
+                  {field.options?.map((permission) => (
+                    <label key={permission}>
+                      <input
+                        name={field.key}
+                        type="checkbox"
+                        value={permission}
+                        defaultChecked={
+                          Array.isArray(modal.values?.[field.key]) &&
+                          (modal.values[field.key] as string[]).includes(
+                            permission,
+                          )
+                        }
+                      />{" "}
+                      {permissionLabel(permission)}
+                    </label>
                   ))}
-                  {field.relation &&
-                    lookups[field.relation]?.map((row) => (
-                      <option value={String(row.id)} key={String(row.id)}>
-                        {String(row.name || row.code || row.id)}
-                        {row.code && row.name ? ` · ${row.code}` : ""}
+                </div>
+              </fieldset>
+            ) : (
+              <label key={field.key}>
+                {field.label}
+                {field.optional ? " (isteğe bağlı)" : ""}
+                {field.type === "checkbox" ? (
+                  <input
+                    type="checkbox"
+                    name={field.key}
+                    defaultChecked={modal.values?.[field.key] !== false}
+                  />
+                ) : field.options || field.relation ? (
+                  <select
+                    name={field.key}
+                    required={!field.optional}
+                    defaultValue={String(modal.values?.[field.key] || "")}
+                  >
+                    <option value="">Seçin</option>
+                    {field.options?.map((value) => (
+                      <option key={value} value={value}>
+                        {valueLabels[value] || value}
                       </option>
                     ))}
-                </select>
-              ) : field.type === "textarea" ? (
-                <textarea
-                  name={field.key}
-                  required={!field.optional}
-                  maxLength={2000}
-                  defaultValue={String(modal.values?.[field.key] || "")}
-                />
-              ) : (
-                <input
-                  name={field.key}
-                  type={
-                    field.type === "decimal" ? "text" : field.type || "text"
-                  }
-                  inputMode={field.type === "decimal" ? "decimal" : undefined}
-                  pattern={
-                    field.type === "decimal"
-                      ? "[0-9]+([.][0-9]{1,6})?"
-                      : undefined
-                  }
-                  required={!field.optional}
-                  defaultValue={String(modal.values?.[field.key] ?? "")}
-                  maxLength={field.type === "decimal" ? 20 : 160}
-                />
-              )}
-            </label>
-          ))}
+                    {field.relation &&
+                      lookups[field.relation]?.map((row) => (
+                        <option value={String(row.id)} key={String(row.id)}>
+                          {String(row.name || row.code || row.id)}
+                          {row.code && row.name ? ` · ${row.code}` : ""}
+                        </option>
+                      ))}
+                  </select>
+                ) : field.type === "textarea" ? (
+                  <textarea
+                    name={field.key}
+                    required={!field.optional}
+                    maxLength={2000}
+                    defaultValue={String(modal.values?.[field.key] || "")}
+                  />
+                ) : (
+                  <input
+                    name={field.key}
+                    type={
+                      field.type === "decimal" ? "text" : field.type || "text"
+                    }
+                    inputMode={field.type === "decimal" ? "decimal" : undefined}
+                    pattern={
+                      field.type === "decimal"
+                        ? "[0-9]+([.][0-9]{1,6})?"
+                        : undefined
+                    }
+                    required={!field.optional}
+                    defaultValue={String(modal.values?.[field.key] ?? "")}
+                    maxLength={field.type === "decimal" ? 20 : 160}
+                  />
+                )}
+              </label>
+            ),
+          )}
           {error && (
             <p role="alert" className="portal-alert error">
               {error}
@@ -1179,7 +1355,13 @@ function DataTable({
             <tr key={String(row.id || i)}>
               {keys.map((key) => (
                 <td key={key}>
-                  {typeof row[key] === "boolean" ? (
+                  {key === "permissions" && Array.isArray(row[key]) ? (
+                    <ul>
+                      {(row[key] as string[]).map((permission) => (
+                        <li key={permission}>{permissionLabel(permission)}</li>
+                      ))}
+                    </ul>
+                  ) : typeof row[key] === "boolean" ? (
                     row[key] ? (
                       "Evet"
                     ) : (

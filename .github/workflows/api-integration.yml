@@ -54,6 +54,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: sh deploy/init-database.sh
+      - name: Verify database provisioning is repeatable
+        run: sh deploy/init-database.sh
       - run: pnpm --filter @olaph/api build
       - run: pnpm --filter @olaph/api migrate
       - run: pnpm --filter @olaph/worker build
