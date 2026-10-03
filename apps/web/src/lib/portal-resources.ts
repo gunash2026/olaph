@@ -135,6 +135,19 @@ export const portalResources: Record<string, PortalResource> = {
     readOnly: true,
     fields: [],
   },
+  transfers: {
+    title: "Depolar arası aktarım",
+    group: "Stok",
+    permission: "stock",
+    readOnly: true,
+    fields: [
+      relation("material_id", "Malzeme", "materials"),
+      relation("source_warehouse_id", "Kaynak depo", "warehouses"),
+      relation("destination_warehouse_id", "Hedef depo", "warehouses"),
+      f("quantity", "Miktar", "decimal"),
+      f("note", "Açıklama", "text", true),
+    ],
+  },
   "stock-counts": {
     title: "Stok sayımları",
     group: "Stok",
@@ -447,4 +460,8 @@ export const columnLabels: Record<string, string> = {
   difference: "Sayım farkı",
   reason: "Gerekçe",
   counted_by: "Sayan kullanıcı",
+  source_warehouse_id: "Kaynak depo",
+  destination_warehouse_id: "Hedef depo",
+  transferred_by: "Aktaran kullanıcı",
+  transfer_id: "Aktarım kaydı",
 };

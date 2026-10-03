@@ -72,6 +72,9 @@ const errors: Record<string, string> = {
   IDEMPOTENCY_CONFLICT:
     "Bu işlem daha önce farklı bilgilerle kaydedildi. Tabloyu yenileyin.",
   STOCK_REFERENCE_NOT_FOUND: "Malzeme veya depo bulunamadı.",
+  STOCK_OWNER_MISMATCH: "Aktarım yalnızca aynı sahibin depoları arasında yapılabilir.",
+  OWNER_CHANGE_REQUIRES_EMPTY_WAREHOUSE: "Stok bulunan bir deponun sahibi değiştirilemez.",
+  INVALID_STOCK_TRANSFER: "Farklı kaynak ve hedef depoları ile geçerli bir miktar seçin.",
   RECIPE_CYCLE: "Bu alt ürün, reçetede döngü oluşturuyor.",
   CONFLICT_OR_INVALID_REFERENCE:
     "Kod zaten var veya bağlı kayıt geçerli değil.",
@@ -242,6 +245,7 @@ export function Portal({ locale }: { locale: Locale }) {
       if (
         modal!.path.endsWith("/movements") ||
         modal!.path.endsWith("/stock-counts") ||
+        modal!.path.endsWith("/transfers") ||
         modal!.path.endsWith("/finish")
       ) {
         operationKey.current ||= crypto.randomUUID();
@@ -903,6 +907,11 @@ export function Portal({ locale }: { locale: Locale }) {
               </div>
             </div>
             <div className="portal-toolbar">
+              {section === "transfers" && tenant?.permissions.includes("stock:write") && (
+                <button className="button dark" onClick={() => void openForm("Depolar arası aktarım", resource.fields, path("transfers"))}>
+                  Stok aktar
+                </button>
+              )}
               {section === "roles" &&
                 tenant?.permissions.includes("settings:write") && (
                   <button

@@ -103,6 +103,12 @@ export const resources: Record<string, Resource> = {
     readonly: true,
     schema: z.object({}),
   },
+  transfers: {
+    table: "stock_transfers",
+    permission: "stock",
+    readonly: true,
+    schema: z.object({}),
+  },
   "stock-counts": {
     table: "stock_counts",
     permission: "stock",

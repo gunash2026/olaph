@@ -17,6 +17,7 @@ beforeAll(async () => {
     "0005_controls",
     "0006_membership_controls",
     "0007_stock_counts",
+    "0008_stock_transfers",
   ])
     await db.exec(
       await readFile(`packages/database/migrations/${name}.sql`, "utf8"),
@@ -177,6 +178,82 @@ async function countStock(
     [material, warehouse, expected, counted, key],
   );
 }
+async function destinationWarehouse(owner: string | null = null) {
+  return (await db.query<{id:string}>("INSERT INTO warehouses(tenant_id,name,owner_partner_id) VALUES($1,'Destination',$2) RETURNING id",[tenant,owner])).rows[0].id;
+}
+async function transfer(destination: string, qty = "3", key = "90000000-0000-4000-8000-000000000001") {
+  return db.query<{id:string}>("SELECT transfer_stock($1,$2,$3,$4,'Warehouse relocation',$5) id",[material,warehouse,destination,qty,key]);
+}
+it("transfers between warehouses atomically without changing total stock or repeating on retry", async () => {
+  await actor(async () => {
+    await move("10");
+    const destination = await destinationWarehouse();
+    const auditBefore = (await db.query("SELECT * FROM audit_log WHERE entity='materials'")).rows.length;
+    const first = await transfer(destination);
+    expect((await transfer(destination)).rows[0]).toEqual(first.rows[0]);
+    expect((await db.query("SELECT quantity FROM materials")).rows[0]).toEqual({quantity:"10.000000"});
+    expect((await db.query("SELECT warehouse_id,quantity FROM stock_balances ORDER BY quantity")).rows).toEqual([
+      {warehouse_id:destination,quantity:"3.000000"},{warehouse_id:warehouse,quantity:"7.000000"},
+    ]);
+    expect((await db.query("SELECT * FROM stock_movements WHERE transfer_id IS NOT NULL")).rows).toHaveLength(2);
+    expect((await db.query("SELECT * FROM stock_transfers")).rows).toHaveLength(1);
+    expect((await db.query("SELECT * FROM audit_log WHERE entity='materials'")).rows).toHaveLength(auditBefore);
+  });
+});
+it("prevents transferring reserved stock", async () => {
+  await actor(async () => {
+    await move("10");
+    const destination = await destinationWarehouse();
+    await db.query("SELECT reserve_stock($1,$2,$3,8)",[order,material,warehouse]);
+    await expect(transfer(destination)).rejects.toThrow("INSUFFICIENT_AVAILABLE_STOCK");
+  });
+});
+it("prevents transfers between different stock owners", async () => {
+  await actor(async () => {
+    await move("10");
+    const owner = (await db.query<{id:string}>("INSERT INTO partners(tenant_id,name,kind) VALUES($1,'Customer','customer') RETURNING id",[tenant])).rows[0].id;
+    await expect(transfer(await destinationWarehouse(owner))).rejects.toThrow("STOCK_OWNER_MISMATCH");
+  });
+});
+it("rejects changing the owner of a warehouse with stock", async () => {
+  await actor(async () => {
+    await move("10");
+    const owner = (await db.query<{id:string}>("INSERT INTO partners(tenant_id,name,kind) VALUES($1,'Customer','customer') RETURNING id",[tenant])).rows[0].id;
+    await expect(db.query("UPDATE warehouses SET owner_partner_id=$1 WHERE id=$2",[owner,warehouse])).rejects.toThrow("OWNER_CHANGE_REQUIRES_EMPTY_WAREHOUSE");
+  });
+});
+it("rejects transfers back into the same warehouse", async () => {
+  await actor(async () => {
+    await expect(transfer(warehouse)).rejects.toThrow("INVALID_STOCK_TRANSFER");
+  });
+});
+it("rejects modified transfer retries", async () => {
+  await actor(async () => {
+    await move("10");
+    const destination = await destinationWarehouse();
+    await transfer(destination);
+    await expect(transfer(destination,"4")).rejects.toThrow("IDEMPOTENCY_CONFLICT");
+  });
+});
+it("does not allow direct transfer tagging to bypass aggregate stock updates", async () => {
+  await actor(async () => {
+    await expect(db.query("INSERT INTO stock_movements(tenant_id,material_id,warehouse_id,quantity,idempotency_key,transfer_id) VALUES($1,$2,$3,1,gen_random_uuid(),gen_random_uuid())",[tenant,material,warehouse])).rejects.toThrow();
+  });
+});
+it("rejects transfer writes without stock permission", async () => {
+  await actor(async () => {
+    await expect(transfer("90000000-0000-4000-8000-000000000002")).rejects.toThrow("FORBIDDEN");
+  },"limited",other);
+});
+it("hides transfer history from another firm", async () => {
+  await actor(async () => {
+    await move("10");
+    await transfer(await destinationWarehouse());
+    await db.query("SELECT set_config('app.user_id','bob',true),set_config('app.tenant_id',$1,true)",[other]);
+    expect((await db.query("SELECT * FROM stock_transfers")).rows).toHaveLength(0);
+    await expect(transfer("90000000-0000-4000-8000-000000000002")).rejects.toThrow("STOCK_REFERENCE_NOT_FOUND");
+  });
+});
 it("reconciles an exact stock count once and records the adjustment and actor", async () => {
   await actor(async () => {
     await move("10.125");

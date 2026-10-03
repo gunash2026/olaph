@@ -218,6 +218,24 @@ export class ApiController {
       return inserted.rows[0];
     });
   }
+  @Post("workspaces/:tenant/transfers") async transferStock(
+    @Req() req: Request,
+    @Param("tenant") tenant: string,
+    @Body() body: unknown,
+  ) {
+    const current = await access(req, tenant, "stock:write");
+    const input = z.object({
+      material_id: id, source_warehouse_id: id, destination_warehouse_id: id,
+      quantity: positive, note: z.string().trim().max(300).default(""), idempotency_key: id,
+    }).strict().refine(value => value.source_warehouse_id !== value.destination_warehouse_id, "Choose different warehouses").parse(body);
+    return transaction(current.user.id, tenant, async (db) => {
+      await entitlement(db);
+      return (await db.query("SELECT transfer_stock($1,$2,$3,$4,$5,$6) id", [
+        input.material_id, input.source_warehouse_id, input.destination_warehouse_id,
+        input.quantity, input.note, input.idempotency_key,
+      ])).rows[0];
+    });
+  }
   @Post("workspaces/:tenant/stock-counts") async countStock(
     @Req() req: Request,
     @Param("tenant") tenant: string,

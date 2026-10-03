@@ -46,6 +46,9 @@ class ApiErrors implements ExceptionFilter {
         "STALE_STOCK_COUNT",
         "IDEMPOTENCY_CONFLICT",
         "STOCK_REFERENCE_NOT_FOUND",
+        "STOCK_OWNER_MISMATCH",
+        "OWNER_CHANGE_REQUIRES_EMPTY_WAREHOUSE",
+        "INVALID_STOCK_TRANSFER",
       ];
     if (sql.code?.startsWith("23")) {
       response.status(409).json({ message: "CONFLICT_OR_INVALID_REFERENCE" });
