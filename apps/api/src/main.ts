@@ -58,6 +58,10 @@ class ApiErrors implements ExceptionFilter {
       response.status(403).json({ message: "PERMISSION_DENIED" });
       return;
     }
+    if (sql.message === "SUBSCRIPTION_REQUIRED") {
+      response.status(402).json({ message: sql.message });
+      return;
+    }
     if (
       [
         "FORBIDDEN",

@@ -130,7 +130,9 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   await dialog
     .getByRole("combobox", { name: "Depo", exact: true })
     .selectOption({ label: "Ana depo" });
-  await dialog.getByRole("combobox", { name: "Yön", exact: true }).selectOption("in");
+  await dialog
+    .getByRole("combobox", { name: "Yön", exact: true })
+    .selectOption("in");
   await dialog.getByLabel("Miktar", { exact: true }).fill("10.125");
   await save(page);
   await section(page, "Malzemeler");
@@ -164,9 +166,15 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   await save(page);
   await section(page, "Depolar arası aktarım");
   await page.getByRole("button", { name: "Stok aktar", exact: true }).click();
-  await dialog.getByRole("combobox", { name: "Malzeme", exact: true }).selectOption({ label: "Kabul malzemesi · MAT-BROWSER" });
-  await dialog.getByRole("combobox", { name: "Kaynak depo", exact: true }).selectOption({ label: "Ana depo" });
-  await dialog.getByRole("combobox", { name: "Hedef depo", exact: true }).selectOption({ label: "İkinci depo" });
+  await dialog
+    .getByRole("combobox", { name: "Malzeme", exact: true })
+    .selectOption({ label: "Kabul malzemesi · MAT-BROWSER" });
+  await dialog
+    .getByRole("combobox", { name: "Kaynak depo", exact: true })
+    .selectOption({ label: "Ana depo" });
+  await dialog
+    .getByRole("combobox", { name: "Hedef depo", exact: true })
+    .selectOption({ label: "İkinci depo" });
   await dialog.getByLabel("Miktar", { exact: true }).fill("2.5");
   await save(page);
   await section(page, "Depo bakiyeleri");
@@ -212,7 +220,9 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   ).toBeVisible();
   await page.getByLabel("Doğrulama kodu", { exact: true }).fill(totp(secret));
   await page.getByRole("button", { name: "Devam et", exact: true }).click();
-  await expect(page.getByRole("navigation", { name: "Çalışma alanı", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("navigation", { name: "Çalışma alanı", exact: true }),
+  ).toBeVisible();
   await section(page, "Malzemeler");
   await expect(page.getByRole("table")).toContainText("MAT-BROWSER");
   expect(errors).toEqual([]);
