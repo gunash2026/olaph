@@ -386,7 +386,7 @@ export function Portal({ locale }: { locale: Locale }) {
             [
               "01",
               "Katalog & stok",
-              "Çok seviyeli reçete, depo, sahiplik ve rezervasyon.",
+              "Reçete, depo, sayım, aktarım ve rezervasyon.",
             ],
             [
               "02",

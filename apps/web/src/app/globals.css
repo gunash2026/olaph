@@ -2220,6 +2220,18 @@ td small {
   background: #1b221d6b;
   backdrop-filter: blur(5px);
 }
+.release-entry {
+  padding-bottom: 36px;
+  margin-bottom: 36px;
+  border-bottom: 1px solid #d8d8cf;
+}
+.release-entry li {
+  margin-block: 12px;
+}
+.release-entry .text-link {
+  display: inline-flex;
+  margin-top: 20px;
+}
 .sidebar-scrim {
   position: fixed;
   inset: 0;
