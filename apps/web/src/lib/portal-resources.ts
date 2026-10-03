@@ -5,6 +5,7 @@ export type Field = {
   options?: string[];
   relation?: string;
   optional?: boolean;
+  readOnly?: boolean;
 };
 export type PortalResource = {
   title: string;
@@ -129,6 +130,13 @@ export const portalResources: Record<string, PortalResource> = {
   },
   balances: {
     title: "Depo bakiyeleri",
+    group: "Stok",
+    permission: "stock",
+    readOnly: true,
+    fields: [],
+  },
+  "stock-counts": {
+    title: "Stok sayımları",
     group: "Stok",
     permission: "stock",
     readOnly: true,
@@ -352,6 +360,8 @@ export const portalResources: Record<string, PortalResource> = {
   },
 };
 export const valueLabels: Record<string, string> = {
+  in: "Giriş",
+  out: "Çıkış",
   customer: "Müşteri",
   supplier: "Tedarikçi",
   both: "Müşteri ve tedarikçi",
@@ -432,4 +442,9 @@ export const columnLabels: Record<string, string> = {
   employee_id: "Personel",
   work_order_id: "İş emri",
   result: "Sonuç",
+  expected_quantity: "Sayım öncesi miktar",
+  counted_quantity: "Sayılan miktar",
+  difference: "Sayım farkı",
+  reason: "Gerekçe",
+  counted_by: "Sayan kullanıcı",
 };

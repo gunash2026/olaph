@@ -43,6 +43,9 @@ class ApiErrors implements ExceptionFilter {
         "INVALID_INVITATION",
         "SEAT_LIMIT",
         "REQUEST_NOT_PENDING",
+        "STALE_STOCK_COUNT",
+        "IDEMPOTENCY_CONFLICT",
+        "STOCK_REFERENCE_NOT_FOUND",
       ];
     if (sql.code?.startsWith("23")) {
       response.status(409).json({ message: "CONFLICT_OR_INVALID_REFERENCE" });

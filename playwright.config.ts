@@ -15,7 +15,7 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: [["list"], ["html", { open: "never" }]],
   // Authentication setup displays disposable secrets; do not record it.
-  use: { baseURL, trace: "off", screenshot: "off", video: "off" },
+  use: { baseURL, trace: "off", screenshot: "off", video: "off", actionTimeout: 15_000 },
   projects: [
     {
       name: "desktop-chromium",

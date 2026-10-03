@@ -218,6 +218,37 @@ export class ApiController {
       return inserted.rows[0];
     });
   }
+  @Post("workspaces/:tenant/stock-counts") async countStock(
+    @Req() req: Request,
+    @Param("tenant") tenant: string,
+    @Body() body: unknown,
+  ) {
+    const current = await access(req, tenant, "stock:write");
+    const input = z
+      .object({
+        material_id: id,
+        warehouse_id: id,
+        expected_quantity: quantity,
+        counted_quantity: quantity,
+        reason: z.string().trim().min(3).max(300),
+        idempotency_key: id,
+      })
+      .strict()
+      .parse(body);
+    return transaction(current.user.id, tenant, async (db) => {
+      await entitlement(db);
+      return (
+        await db.query("SELECT confirm_stock_count($1,$2,$3,$4,$5,$6) id", [
+          input.material_id,
+          input.warehouse_id,
+          input.expected_quantity,
+          input.counted_quantity,
+          input.reason,
+          input.idempotency_key,
+        ])
+      ).rows[0];
+    });
+  }
   @Post("workspaces/:tenant/reservations") async reserve(
     @Req() req: Request,
     @Param("tenant") tenant: string,

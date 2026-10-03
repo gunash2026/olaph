@@ -119,12 +119,12 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
     .getByRole("button", { name: "Stok giriş / çıkış", exact: true })
     .click();
   await dialog
-    .getByLabel("Malzeme", { exact: true })
+    .getByRole("combobox", { name: "Malzeme", exact: true })
     .selectOption({ label: "Kabul malzemesi · MAT-BROWSER" });
   await dialog
-    .getByLabel("Depo", { exact: true })
+    .getByRole("combobox", { name: "Depo", exact: true })
     .selectOption({ label: "Ana depo" });
-  await dialog.getByLabel("Yön", { exact: true }).selectOption("in");
+  await dialog.getByRole("combobox", { name: "Yön", exact: true }).selectOption("in");
   await dialog.getByLabel("Miktar", { exact: true }).fill("10.125");
   await save(page);
   await section(page, "Malzemeler");
@@ -137,6 +137,20 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
     path: testInfo.outputPath("portal-inventory.png"),
     contentType: "image/png",
   });
+
+  await section(page, "Depo bakiyeleri");
+  await page.getByRole("button", { name: "Sayım kaydet", exact: true }).click();
+  await expect(
+    dialog.getByLabel("Kayıtlı miktar", { exact: true }),
+  ).toHaveValue("10.125000");
+  await dialog.getByLabel("Sayılan miktar", { exact: true }).fill("9.625");
+  await dialog
+    .getByLabel("Sayım gerekçesi", { exact: true })
+    .fill("Fiziksel sayım doğrulaması");
+  await save(page);
+  await expect(page.getByRole("table")).toContainText("9.625000");
+  await section(page, "Stok sayımları");
+  await expect(page.getByRole("table")).toContainText("-0.500000");
 
   await page
     .getByRole("button", { name: "Hesap güvenliği", exact: true })
@@ -167,7 +181,7 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   await expect(page.getByRole("table")).toContainText("400");
   await page.reload();
   await section(page, "Malzemeler");
-  await expect(page.getByRole("table")).toContainText("10.125000");
+  await expect(page.getByRole("table")).toContainText("9.625000");
   await page.getByRole("button", { name: "Çıkış yap", exact: true }).click();
   await page.getByLabel("E-posta", { exact: true }).fill(email);
   await page.getByLabel("Parola", { exact: true }).fill(password);

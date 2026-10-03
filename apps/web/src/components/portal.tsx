@@ -67,6 +67,11 @@ const errors: Record<string, string> = {
   SUBSCRIPTION_REQUIRED:
     "Deneme veya abonelik süresi sona erdi. Verilerinizi görüntüleyip dışa aktarabilirsiniz.",
   INSUFFICIENT_AVAILABLE_STOCK: "Kullanılabilir stok yeterli değil.",
+  STALE_STOCK_COUNT:
+    "Sayım sırasında stok değişti. Pencereyi kapatıp tabloyu yenileyin; güncel miktarla sayımı tekrar kontrol edin.",
+  IDEMPOTENCY_CONFLICT:
+    "Bu işlem daha önce farklı bilgilerle kaydedildi. Tabloyu yenileyin.",
+  STOCK_REFERENCE_NOT_FOUND: "Malzeme veya depo bulunamadı.",
   RECIPE_CYCLE: "Bu alt ürün, reçetede döngü oluşturuyor.",
   CONFLICT_OR_INVALID_REFERENCE:
     "Kod zaten var veya bağlı kayıt geçerli değil.",
@@ -236,6 +241,7 @@ export function Portal({ locale }: { locale: Locale }) {
       }
       if (
         modal!.path.endsWith("/movements") ||
+        modal!.path.endsWith("/stock-counts") ||
         modal!.path.endsWith("/finish")
       ) {
         operationKey.current ||= crypto.randomUUID();
@@ -245,6 +251,10 @@ export function Portal({ locale }: { locale: Locale }) {
         payload.id = modal!.values?.id || null;
       if (modal!.path.endsWith("/members"))
         payload.user_id = modal!.values?.user_id;
+      if (modal!.path.endsWith("/stock-counts")) {
+        payload.material_id = modal!.values?.material_id;
+        payload.warehouse_id = modal!.values?.warehouse_id;
+      }
       if (modal!.values?.version) payload.version = modal!.values.version;
       await api(modal!.path, payload, modal!.method);
       operationKey.current = "";
@@ -1030,6 +1040,38 @@ export function Portal({ locale }: { locale: Locale }) {
               locale={locale}
               action={(row) => (
                 <>
+                  {section === "balances" &&
+                    tenant?.permissions.includes("stock:write") && (
+                      <button
+                        onClick={() =>
+                          void openForm(
+                            "Stok sayımını doğrula",
+                            [
+                              {
+                                key: "expected_quantity",
+                                label: "Kayıtlı miktar",
+                                type: "decimal",
+                                readOnly: true,
+                              },
+                              {
+                                key: "counted_quantity",
+                                label: "Sayılan miktar",
+                                type: "decimal",
+                              },
+                              { key: "reason", label: "Sayım gerekçesi" },
+                            ],
+                            path("stock-counts"),
+                            {
+                              ...row,
+                              expected_quantity: row.quantity,
+                              counted_quantity: row.quantity,
+                            },
+                          )
+                        }
+                      >
+                        Sayım kaydet
+                      </button>
+                    )}
                   {section === "roles" &&
                     row.name !== "admin" &&
                     tenant?.permissions.includes("settings:write") && (
@@ -1292,6 +1334,7 @@ export function Portal({ locale }: { locale: Locale }) {
                     type={
                       field.type === "decimal" ? "text" : field.type || "text"
                     }
+                    readOnly={field.readOnly}
                     inputMode={field.type === "decimal" ? "decimal" : undefined}
                     pattern={
                       field.type === "decimal"

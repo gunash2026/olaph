@@ -32,6 +32,12 @@ const movement={material_id:material.id,warehouse_id:warehouse.id,direction:'in'
 await alice(`/api/workspaces/${tenant}/movements`,movement,201);await alice(`/api/workspaces/${tenant}/movements`,movement,201);
 assert.equal((await alice(`/api/workspaces/${tenant}/resources/materials`)).items[0].quantity,'10.125000');
 await alice(`/api/workspaces/${tenant}/movements`,{...movement,direction:'out',quantity:'11',idempotency_key:randomUUID()},409);
+const stockCount={material_id:material.id,warehouse_id:warehouse.id,expected_quantity:'10.125',counted_quantity:'9.625',reason:'Physical verification',idempotency_key:randomUUID()};
+const [firstCount,repeatedCount]=await Promise.all([alice(`/api/workspaces/${tenant}/stock-counts`,stockCount,201),alice(`/api/workspaces/${tenant}/stock-counts`,stockCount,201)]);
+assert.deepEqual(repeatedCount,firstCount);
+assert.equal((await alice(`/api/workspaces/${tenant}/resources/materials`)).items[0].quantity,'9.625000');
+assert.equal((await alice(`/api/workspaces/${tenant}/resources/stock-counts`)).items[0].difference,'-0.500000');
+await alice(`/api/workspaces/${tenant}/stock-counts`,{...stockCount,idempotency_key:randomUUID()},409);
 const recipient=`notifications-${randomUUID()}@example.test`;
 await alice(`/api/workspaces/${tenant}/resources/notification-rules`,{event:'purchase_pending',channel:'email',recipient,enabled:true},201);
 const purchase=await alice(`/api/workspaces/${tenant}/resources/purchases`,{material_id:material.id,quantity:'1',unit_price:'5',currency:'USD'},201);

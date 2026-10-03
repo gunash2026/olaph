@@ -16,6 +16,7 @@ beforeAll(async () => {
     "0004_entitlements",
     "0005_controls",
     "0006_membership_controls",
+    "0007_stock_counts",
   ])
     await db.exec(
       await readFile(`packages/database/migrations/${name}.sql`, "utf8"),
@@ -164,6 +165,134 @@ it("consumes a reservation once even when its confirmation is retried", async ()
         )
       ).rows[0],
     ).toEqual({ quantity: "7.000000", reserved: "0.000000" });
+  });
+});
+async function countStock(
+  expected: string,
+  counted: string,
+  key = "80000000-0000-4000-8000-000000000001",
+) {
+  return db.query<{ id: string }>(
+    "SELECT confirm_stock_count($1,$2,$3,$4,'Physical verification',$5) id",
+    [material, warehouse, expected, counted, key],
+  );
+}
+it("reconciles an exact stock count once and records the adjustment and actor", async () => {
+  await actor(async () => {
+    await move("10.125");
+    const first = await countStock("10.125", "9.625");
+    expect((await countStock("10.125", "9.625")).rows[0]).toEqual(
+      first.rows[0],
+    );
+    expect(
+      (await db.query("SELECT quantity FROM stock_balances")).rows[0],
+    ).toEqual({ quantity: "9.625000" });
+    expect(
+      (await db.query("SELECT difference,counted_by FROM stock_counts")).rows,
+    ).toEqual([{ difference: "-0.500000", counted_by: "alice" }]);
+    expect((await db.query("SELECT * FROM stock_movements")).rows).toHaveLength(
+      2,
+    );
+    expect(
+      (await db.query("SELECT * FROM audit_log WHERE entity='stock_counts'"))
+        .rows,
+    ).toHaveLength(1);
+  });
+});
+it("rejects a stock count if a movement happened after its baseline was read", async () => {
+  await actor(async () => {
+    await move("10");
+    await move("2", "70000000-0000-4000-8000-000000000003");
+    await expect(countStock("10", "9")).rejects.toThrow("STALE_STOCK_COUNT");
+  });
+});
+it("does not let physical counts consume stock reserved by an order", async () => {
+  await actor(async () => {
+    await move("10");
+    await db.query("SELECT reserve_stock($1,$2,$3,7)", [
+      order,
+      material,
+      warehouse,
+    ]);
+    await expect(countStock("10", "6")).rejects.toThrow(
+      "INSUFFICIENT_AVAILABLE_STOCK",
+    );
+  });
+});
+it("records a matching count without inventing a stock movement", async () => {
+  await actor(async () => {
+    await move("10");
+    await countStock("10", "10");
+    expect((await db.query("SELECT * FROM stock_counts")).rows).toHaveLength(1);
+    expect((await db.query("SELECT * FROM stock_movements")).rows).toHaveLength(
+      1,
+    );
+  });
+});
+it("rejects changed stock count data under an already committed request key", async () => {
+  await actor(async () => {
+    await move("10");
+    await countStock("10", "9");
+    await expect(countStock("10", "8")).rejects.toThrow("IDEMPOTENCY_CONFLICT");
+  });
+});
+it("keeps counts immutable and hidden from another company", async () => {
+  await actor(async () => {
+    await move("10");
+    await countStock("10", "9");
+    await db.query(
+      "SELECT set_config('app.user_id','bob',true),set_config('app.tenant_id',$1,true)",
+      [other],
+    );
+    expect((await db.query("SELECT * FROM stock_counts")).rows).toHaveLength(0);
+    await expect(
+      db.query("UPDATE stock_counts SET counted_quantity=999"),
+    ).rejects.toThrow();
+  });
+});
+it("rejects stock count writes without stock permission", async () => {
+  await actor(
+    async () => {
+      await expect(countStock("0", "1")).rejects.toThrow("FORBIDDEN");
+    },
+    "limited",
+    other,
+  );
+});
+it("rejects a foreign warehouse or material in a stock count", async () => {
+  await actor(
+    async () => {
+      await expect(countStock("0", "1")).rejects.toThrow(
+        "STOCK_REFERENCE_NOT_FOUND",
+      );
+    },
+    "bob",
+    other,
+  );
+});
+it("rejects stock counts after trial expiry even when called directly in SQL", async () => {
+  await db.query(
+    "UPDATE subscriptions SET trial_ends_at=now()-interval '1 day' WHERE tenant_id=$1",
+    [tenant],
+  );
+  try {
+    await actor(async () => {
+      await expect(countStock("0", "1")).rejects.toThrow(
+        "SUBSCRIPTION_REQUIRED",
+      );
+    });
+  } finally {
+    await db.query(
+      "UPDATE subscriptions SET trial_ends_at=now()+interval '14 days' WHERE tenant_id=$1",
+      [tenant],
+    );
+  }
+});
+it("rejects stock counts with more than six decimal places instead of rounding silently", async () => {
+  await actor(async () => {
+    await expect(countStock("0", "0.1234567")).rejects.toThrow(
+      "INVALID_STOCK_COUNT",
+    );
   });
 });
 it("prevents recipes from creating indirect cycles", async () => {
