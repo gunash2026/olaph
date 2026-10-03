@@ -43,3 +43,9 @@ node scripts/local-api.mjs
 Bu mod API'yi localhost:4000'de açar. Parolalar günlükte gösterilmez. `compose.local-test.yaml` yalnızca loopback üzerinde PostgreSQL 54320 ve SMTP 1025 portlarını açar; canlı sunucuda kullanılmaz.
 
 Tam dağıtım kabulü; yalnızca servis başlatmanın ötesinde kayıt/doğrulama/MFA, iki ayrı firma ile veri ayrımı, stok ve Excel işlemleri, e-posta teslimatı ve geri yükleme testlerini gerektirir. Kabul sonuçları `COMPLETION-TRACKER.md` içinde tutulur.
+
+## Tarayıcı kabul testi
+
+`api-integration.yml`, gerçek PostgreSQL ve Mailpit üzerinde masaüstü/mobil Chromium senaryosunu çalıştırır. Testler yalnızca geçici, localhost adresli ortama kayıt ekler. Rapor ve stok ekranı görüntüleri `olaph-browser-report` iş akışı çıktısındadır; MFA kurulumu sırasında ekran veya ağ kaydı alınmaz.
+
+Yerelde aynı senaryo için API'nin `APP_URL` değeri `http://127.0.0.1:3000` olmalıdır. Web paketini `NEXT_PUBLIC_APP_ENABLED=true` ve `NEXT_PUBLIC_SITE_URL=http://127.0.0.1:3000` ile derleyin. API 4000, Mailpit 8025 portunda çalışırken `node scripts/serve-portal-preview.mjs` ile aynı origin önizlemesini başlatın; `pnpm exec playwright install chromium` sonrasında `pnpm test:browser` çalıştırın. Bu önizleme sunucusu yalnızca loopback üzerinde dinler; üretim dağıtımı Caddy kullanır.

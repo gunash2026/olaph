@@ -8,9 +8,11 @@
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "vitest run",
+    "test:browser": "playwright test",
     "check": "pnpm typecheck && pnpm test && pnpm build"
   },
   "devDependencies": {
+    "@playwright/test": "1.63.0",
     "turbo": "^2.8.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.0",
