@@ -171,11 +171,12 @@ export function Portal({ locale }: { locale: Locale }) {
   const [session, setSession] = useState<Session | null>(null),
     [workspace, setWorkspace] = useState(""),
     [section, setSection] = useState("overview"),
-    [rows, setRows] = useState<Row[]>([]),
+    [listing, setListing] = useState<{
+      key: string;
+      rows: Row[];
+      definitions: CustomDefinition[];
+    } | null>(null),
     [lookups, setLookups] = useState<Record<string, Row[]>>({}),
-    [customDefinitions, setCustomDefinitions] = useState<CustomDefinition[]>(
-      [],
-    ),
     [movementMaterial, setMovementMaterial] = useState(""),
     [movementUnits, setMovementUnits] = useState<Row[]>([]),
     [movementUnit, setMovementUnit] = useState(""),
@@ -205,9 +206,14 @@ export function Portal({ locale }: { locale: Locale }) {
     Boolean(captchaSiteKey) && ["login", "signup", "forgot"].includes(authMode);
   const dialog = useRef<HTMLDialogElement>(null),
     form = useRef<HTMLFormElement>(null),
-    operationKey = useRef("");
+    operationKey = useRef(""),
+    refreshContext = useRef(""),
+    refreshSequence = useRef(0);
   const tenant = session?.workspaces.find((x) => x.id === workspace),
-    resource = portalResources[section];
+    resource = portalResources[section],
+    listKey = `${workspace}/${section}/${page}`,
+    rows = listing?.key === listKey ? listing.rows : [],
+    customDefinitions = listing?.key === listKey ? listing.definitions : [];
   const run = useCallback(
     async (fn: () => Promise<void>, preserveNotice = false) => {
       setBusy(true);
@@ -280,32 +286,44 @@ export function Portal({ locale }: { locale: Locale }) {
   const path = (suffix: string) =>
     `/workspaces/${encodeURIComponent(workspace)}/${suffix}`;
   const refresh = useCallback(async () => {
-    if (!workspace) return;
+    if (!workspace || refreshContext.current !== listKey) return;
+    const sequence = ++refreshSequence.current;
+    let items: Row[] = [];
+    let definitions: CustomDefinition[] = [];
     if (portalResources[section]) {
-      const data = await api(
-        `/workspaces/${workspace}/resources/${section}?page=${page}`,
-      );
-      setRows(data.items);
-      setCustomDefinitions(
+      const [data, fields] = await Promise.all([
+        api(`/workspaces/${workspace}/resources/${section}?page=${page}`),
         ["materials", "products", "partners"].includes(section)
-          ? (await api(`/workspaces/${workspace}/custom-fields/${section}`))
-              .items
-          : [],
-      );
+          ? api(`/workspaces/${workspace}/custom-fields/${section}`)
+          : Promise.resolve({ items: [] }),
+      ]);
+      items = data.items;
+      definitions = fields.items;
     } else if (section === "needs" || section === "members") {
       const data = await api(`/workspaces/${workspace}/${section}`);
-      setRows(data.items);
+      items = data.items;
     }
-  }, [workspace, section, page]);
+    if (
+      sequence === refreshSequence.current &&
+      refreshContext.current === listKey
+    )
+      setListing({ key: listKey, rows: items, definitions });
+  }, [workspace, section, page, listKey]);
   useEffect(() => {
-    setRows([]);
+    refreshContext.current = listKey;
+    setListing(null);
     setSearch("");
     if (workspace && (!tenant?.mfa_required || session?.user.twoFactorEnabled))
       void run(refresh, true);
+    return () => {
+      refreshContext.current = "";
+      refreshSequence.current++;
+    };
   }, [
     workspace,
     section,
     page,
+    listKey,
     run,
     refresh,
     tenant?.mfa_required,
