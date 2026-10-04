@@ -28,8 +28,15 @@ const secret=new URL(enrollment.totpURI).searchParams.get('secret');assert.ok(se
 await alice('/api/auth/two-factor/verify-totp',{code:totp(secret),trustDevice:false});
 const material=await alice(`/api/workspaces/${tenant}/resources/materials`,{code:'MAT-A',name:'Test material',unit:'unit',minimum:'2'},201);
 const warehouse=await alice(`/api/workspaces/${tenant}/resources/warehouses`,{name:'Main'},201);
-const movement={material_id:material.id,warehouse_id:warehouse.id,direction:'in',quantity:'10.125',note:'Test receipt',idempotency_key:randomUUID()};
-await alice(`/api/workspaces/${tenant}/movements`,movement,201);await alice(`/api/workspaces/${tenant}/movements`,movement,201);
+const inputUnit=await alice(`/api/workspaces/${tenant}/resources/units`,{code:'pack',name:'Pack'},201);
+await alice(`/api/workspaces/${tenant}/resources/material-unit-conversions`,{material_id:material.id,input_unit_id:inputUnit.id,factor:'2.5'},201);
+assert.equal((await alice(`/api/workspaces/${tenant}/materials/${material.id}/stock-units`)).items[0].factor,'2.5');
+const movement={material_id:material.id,warehouse_id:warehouse.id,direction:'in',quantity:'4.05',input_unit_id:inputUnit.id,note:'Test receipt',idempotency_key:randomUUID()};
+const [firstMovement,repeatedMovement]=await Promise.all([alice(`/api/workspaces/${tenant}/movements`,movement,201),alice(`/api/workspaces/${tenant}/movements`,movement,201)]);
+assert.deepEqual(repeatedMovement,firstMovement);
+assert.equal(firstMovement.input_quantity,'4.05');assert.equal(firstMovement.input_unit,'pack');assert.equal(firstMovement.conversion_factor,'2.5');assert.equal(firstMovement.stock_unit,'unit');
+await alice(`/api/workspaces/${tenant}/movements`,{...movement,note:'Changed note'},409);
+await alice(`/api/workspaces/${tenant}/movements`,{...movement,quantity:'0.000001',idempotency_key:randomUUID()},409);
 assert.equal((await alice(`/api/workspaces/${tenant}/resources/materials`)).items[0].quantity,'10.125000');
 await alice(`/api/workspaces/${tenant}/movements`,{...movement,direction:'out',quantity:'11',idempotency_key:randomUUID()},409);
 const stockCount={material_id:material.id,warehouse_id:warehouse.id,expected_quantity:'10.125',counted_quantity:'9.625',reason:'Physical verification',idempotency_key:randomUUID()};

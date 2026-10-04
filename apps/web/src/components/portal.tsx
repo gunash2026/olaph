@@ -78,6 +78,17 @@ const errors: Record<string, string> = {
     "Stok bulunan bir deponun sahibi değiştirilemez.",
   INVALID_STOCK_TRANSFER:
     "Farklı kaynak ve hedef depoları ile geçerli bir miktar seçin.",
+  UNIT_CONVERSION_NOT_FOUND:
+    "Bu malzeme için seçilen birimin dönüşümünü önce Katalog bölümünde tanımlayın.",
+  CONVERTED_QUANTITY_OUT_OF_RANGE:
+    "Dönüşüm sonucu en fazla 6 ondalık basamaklı ve 1 trilyondan küçük olmalıdır. Miktarı veya katsayıyı düzeltin; stok yuvarlanmaz.",
+  INVALID_STOCK_CONVERSION: "Geçerli bir stok miktarı ve birim seçin.",
+  MATERIAL_UNIT_IN_USE:
+    "İşlem veya dönüşüm tanımı bulunan malzemenin stok birimi değiştirilemez. Farklı birim için yeni malzeme açın.",
+  CONVERSION_REFERENCE_IMMUTABLE:
+    "Mevcut dönüşümün yalnızca katsayısı değiştirilebilir. Başka malzeme veya birim için yeni tanım açın.",
+  CONVERSION_REQUIRES_DIFFERENT_UNIT:
+    "Dönüşüm birimi malzemenin stok biriminden farklı olmalıdır.",
   RECIPE_CYCLE: "Bu alt ürün, reçetede döngü oluşturuyor.",
   CONFLICT_OR_INVALID_REFERENCE:
     "Kod zaten var veya bağlı kayıt geçerli değil.",
@@ -103,6 +114,11 @@ export function Portal({ locale }: { locale: Locale }) {
     [section, setSection] = useState("overview"),
     [rows, setRows] = useState<Row[]>([]),
     [lookups, setLookups] = useState<Record<string, Row[]>>({}),
+    [movementMaterial, setMovementMaterial] = useState(""),
+    [movementUnits, setMovementUnits] = useState<Row[]>([]),
+    [movementUnit, setMovementUnit] = useState(""),
+    [unitsLoading, setUnitsLoading] = useState(false),
+    [unitsError, setUnitsError] = useState(""),
     [page, setPage] = useState(0),
     [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
@@ -127,19 +143,22 @@ export function Portal({ locale }: { locale: Locale }) {
     operationKey = useRef("");
   const tenant = session?.workspaces.find((x) => x.id === workspace),
     resource = portalResources[section];
-  const run = useCallback(async (fn: () => Promise<void>, preserveNotice = false) => {
-    setBusy(true);
-    setError("");
-    if (!preserveNotice) setNotice("");
-    try {
-      await fn();
-    } catch (e) {
-      const message = (e as Error).message;
-      setError(errors[message] || message);
-    } finally {
-      setBusy(false);
-    }
-  }, []);
+  const run = useCallback(
+    async (fn: () => Promise<void>, preserveNotice = false) => {
+      setBusy(true);
+      setError("");
+      if (!preserveNotice) setNotice("");
+      try {
+        await fn();
+      } catch (e) {
+        const message = (e as Error).message;
+        setError(errors[message] || message);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [],
+  );
   const refreshSession = useCallback(async () => {
     const data: Session = await api("/session");
     setSession(data);
@@ -160,6 +179,35 @@ export function Portal({ locale }: { locale: Locale }) {
       form.current?.reset();
     }
   }, [modal]);
+  useEffect(() => {
+    let active = true;
+    setMovementUnits([]);
+    setMovementUnit("");
+    setUnitsError("");
+    if (!modal?.path.endsWith("/movements") || !movementMaterial) {
+      setUnitsLoading(false);
+      return;
+    }
+    setUnitsLoading(true);
+    void api(
+      `/workspaces/${workspace}/materials/${movementMaterial}/stock-units`,
+    )
+      .then((data) => {
+        if (active) setMovementUnits(data.items);
+      })
+      .catch(() => {
+        if (active)
+          setUnitsError(
+            "Birimler yüklenemedi. Pencereyi kapatıp yeniden açın.",
+          );
+      })
+      .finally(() => {
+        if (active) setUnitsLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [modal?.path, movementMaterial, workspace]);
   const path = (suffix: string) =>
     `/workspaces/${encodeURIComponent(workspace)}/${suffix}`;
   const refresh = useCallback(async () => {
@@ -215,6 +263,8 @@ export function Portal({ locale }: { locale: Locale }) {
           );
       }
       setLookups(loaded);
+      setMovementMaterial("");
+      setMovementUnit("");
       operationKey.current = "";
       setModal({ title, fields, path: target, values, method });
     });
@@ -994,6 +1044,12 @@ export function Portal({ locale }: { locale: Locale }) {
                             options: ["in", "out"],
                           },
                           { key: "quantity", label: "Miktar", type: "decimal" },
+                          {
+                            key: "input_unit_id",
+                            label: "İşlem birimi",
+                            type: "stock-unit",
+                            optional: true,
+                          },
                           { key: "note", label: "Açıklama", optional: true },
                         ],
                         path("movements"),
@@ -1290,6 +1346,15 @@ export function Portal({ locale }: { locale: Locale }) {
               ×
             </button>
           </div>
+          {modal?.path.includes("/resources/material-unit-conversions") && (
+            <p className="portal-hint">
+              Bir giriş biriminin bu malzemenin stok birimindeki karşılığını
+              yazın. Örneğin stok birimi m² ise 1 levha = 2.88 m² için katsayı
+              2.88 olur. Stok girişi ve çıkışı bu katsayıyla hesaplanır; sayım,
+              aktarım ve rezervasyon stok birimindedir. Sonradan değişen katsayı
+              geçmiş hareketleri değiştirmez.
+            </p>
+          )}
           {modal?.fields.map((field) =>
             field.type === "permissions" ? (
               <fieldset key={field.key}>
@@ -1317,7 +1382,29 @@ export function Portal({ locale }: { locale: Locale }) {
               <label key={field.key}>
                 {field.label}
                 {field.optional ? " (isteğe bağlı)" : ""}
-                {field.type === "checkbox" ? (
+                {field.type === "stock-unit" ? (
+                  <select
+                    name={field.key}
+                    value={movementUnit}
+                    disabled={
+                      !movementMaterial || unitsLoading || Boolean(unitsError)
+                    }
+                    onChange={(event) => setMovementUnit(event.target.value)}
+                  >
+                    <option value="">
+                      Stok birimi
+                      {movementMaterial
+                        ? ` · ${String(lookups.materials?.find((row) => row.id === movementMaterial)?.unit || "")}`
+                        : " · önce malzeme seçin"}
+                    </option>
+                    {movementUnits.map((unit) => (
+                      <option key={String(unit.id)} value={String(unit.id)}>
+                        {String(unit.name)} · 1 {String(unit.code)} ={" "}
+                        {String(unit.factor)} {String(unit.stock_unit)}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === "checkbox" ? (
                   <input
                     type="checkbox"
                     name={field.key}
@@ -1328,6 +1415,15 @@ export function Portal({ locale }: { locale: Locale }) {
                     name={field.key}
                     required={!field.optional}
                     defaultValue={String(modal.values?.[field.key] || "")}
+                    onChange={
+                      field.key === "material_id" &&
+                      modal.path.endsWith("/movements")
+                        ? (event) => {
+                            setMovementMaterial(event.target.value);
+                            setMovementUnit("");
+                          }
+                        : undefined
+                    }
                   >
                     <option value="">Seçin</option>
                     {field.options?.map((value) => (
@@ -1371,12 +1467,20 @@ export function Portal({ locale }: { locale: Locale }) {
               </label>
             ),
           )}
+          {unitsError && (
+            <p role="alert" className="portal-alert error">
+              {unitsError}
+            </p>
+          )}
           {error && (
             <p role="alert" className="portal-alert error">
               {error}
             </p>
           )}
-          <button className="button dark" disabled={busy}>
+          <button
+            className="button dark"
+            disabled={busy || unitsLoading || Boolean(unitsError)}
+          >
             Kaydet
           </button>
         </form>
@@ -1395,6 +1499,8 @@ function DataTable({
 }) {
   const keys = [...new Set(rows.flatMap((row) => Object.keys(row)))].filter(
     (key) =>
+      !(key === "material_id" && rows.every((row) => row.material_name)) &&
+      !(key === "input_unit_id" && rows.every((row) => row.input_unit)) &&
       ![
         "tenant_id",
         "id",

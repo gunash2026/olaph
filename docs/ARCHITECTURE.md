@@ -12,6 +12,8 @@ RLS doğrulaması PGlite üzerinde gerçek SQL ile yapılır: A firmasının B'y
 
 Depo aktarımı aynı sahibin depoları arasında iki karşılıklı hareket oluşturur. Toplam malzeme miktarı değişmez; geçici kritik stok bildirimi üretilmez. Rezerve miktar aktarılamaz. Stoklu deponun sahibi değiştirilemez. İş kayıtları ve üyelik/rol değişiklikleri denetim kaydına yazılır; uygulama rolüne denetim kaydı güncelleme veya silme yetkisi verilmez.
 
+Malzemeye özel `material_unit_conversions`, bir giriş/çıkış biriminin malzemenin stok birimindeki karşılığını tutar. `record_stock_movement` katsayıyla çarpımı PostgreSQL NUMERIC ile yapar; altı ondalık basamağa sığmayan veya aralığı aşan sonuçları yuvarlamadan reddeder. Hareket, girilen işaretli miktarı, birim kodunu, katsayıyı ve stok birimini değişmez anlık değerler olarak saklar. Tekrar istekleri güncel katsayı yerine önceki işlemle karşılaştırılır; aynı anahtar farklı miktar, birim veya notla kullanılamaz. Sayım, aktarım ve rezervasyonlar stok birimiyle çalışır. Genel birim tablosundaki temel birim/katsayı tanımından otomatik dönüşüm çıkarılmaz; stok için malzeme bazlı açık eşleme gerekir. İşlem veya dönüşüm tanımı bulunan malzemenin stok birimi değiştirilemez.
+
 Satın alma kararları onay izni, yakın zamanda kimlik doğrulama ve geçerli abonelik gerektirir. Deneme süresi dolduğunda operasyon yazma uçları engellenir; yetkili okuma ve dışa aktarma sürer. Kullanıcı/rol güvenliği ayrı izinlerle yönetilir. Plan fiyatlandırması ve gerçek ödeme sağlayıcısı henüz bağlı değildir.
 
 Miktarlar `NUMERIC(18,6)`, fiyatlar `NUMERIC(18,4)` olarak saklanır; uygulama taşıma biçimi string'dir. İş hesapları decimal.js kullanır. `Number` yalnızca görünüm biçimlendirmesinde kullanılabilir.

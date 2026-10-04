@@ -102,7 +102,9 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   await page
     .getByRole("button", { name: "Kurulumu doğrula", exact: true })
     .click();
-  await expect(page.getByRole("heading", { name: "Her adım, tek yerde.", exact: true })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Her adım, tek yerde.", exact: true }),
+  ).toBeVisible();
   await expect(page.getByRole("status")).toHaveText(
     "İki aşamalı doğrulama etkin.",
   );
@@ -117,6 +119,24 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   await dialog.getByLabel("Kritik seviye", { exact: true }).fill("2");
   await save(page);
   await expect(page.getByRole("table")).toContainText("MAT-BROWSER");
+  await section(page, "Birimler");
+  await page.getByRole("button", { name: "Yeni kayıt", exact: true }).click();
+  await dialog.getByLabel("Kod", { exact: true }).fill("paket");
+  await dialog.getByLabel("Ad", { exact: true }).fill("Paket");
+  await dialog.getByLabel("Dönüşüm katsayısı", { exact: true }).fill("1");
+  await save(page);
+  await section(page, "Malzeme birim dönüşümleri");
+  await page.getByRole("button", { name: "Yeni kayıt", exact: true }).click();
+  await dialog
+    .getByRole("combobox", { name: "Malzeme", exact: true })
+    .selectOption({ label: "Kabul malzemesi · MAT-BROWSER" });
+  await dialog
+    .getByRole("combobox", { name: "Giriş / çıkış birimi", exact: true })
+    .selectOption({ label: "Paket · paket" });
+  await dialog
+    .getByLabel("Bir giriş biriminin stok karşılığı", { exact: true })
+    .fill("2.5");
+  await save(page);
   await section(page, "Depolar ve sahiplik");
   await page.getByRole("button", { name: "Yeni kayıt", exact: true }).click();
   await dialog.getByLabel("Depo adı", { exact: true }).fill("Ana depo");
@@ -134,8 +154,13 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   await dialog
     .getByRole("combobox", { name: "Yön", exact: true })
     .selectOption("in");
-  await dialog.getByLabel("Miktar", { exact: true }).fill("10.125");
+  await dialog.getByLabel("Miktar", { exact: true }).fill("4.05");
+  await dialog
+    .getByRole("combobox", { name: "İşlem birimi (isteğe bağlı)", exact: true })
+    .selectOption({ label: "Paket · 1 paket = 2.5 adet" });
   await save(page);
+  await expect(page.getByRole("table")).toContainText("4.05");
+  await expect(page.getByRole("table")).toContainText("paket");
   await section(page, "Malzemeler");
   await expect(page.getByRole("table")).toContainText("10.125000");
   await page.screenshot({

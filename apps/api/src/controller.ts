@@ -16,7 +16,6 @@ import type { Request, Response } from "express";
 import { verifyRecentIdentity } from "./reauthentication.js";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { Decimal } from "decimal.js";
 
 import { pool, authPool, transaction } from "./db.js";
 import { id, positive, quantity } from "./resources.js";
@@ -109,10 +108,25 @@ export class ApiController {
         z.coerce.number().int().min(0).max(100000).default(0).parse(page) * 100;
     if (["quotes", "purchases"].includes(name))
       await access(req, tenant, "cost:read");
+    const materialTables = [
+      "material-unit-conversions",
+      "movements",
+      "balances",
+      "transfers",
+      "stock-counts",
+    ];
+    const materialJoin = materialTables.includes(name)
+      ? " LEFT JOIN materials m ON m.tenant_id=r.tenant_id AND m.id=r.material_id"
+      : "";
+    const unitJoin =
+      name === "material-unit-conversions"
+        ? " LEFT JOIN units u ON u.tenant_id=r.tenant_id AND u.id=r.input_unit_id"
+        : "";
+    const labels = `${materialJoin ? ",m.code AS material_code,m.name AS material_name" : ""}${unitJoin ? ",u.code AS input_unit,m.unit AS stock_unit" : ""}`;
     return transaction(current.user.id, tenant, async (db) => ({
       items: (
         await db.query(
-          `SELECT * FROM ${item.table} ${name === "notifications" ? "WHERE recipient=$2" : ""} ORDER BY id LIMIT 100 OFFSET $1`,
+          `SELECT r.*${labels} FROM ${item.table} r${materialJoin}${unitJoin} ${name === "notifications" ? "WHERE r.recipient=$2" : ""} ORDER BY r.id LIMIT 100 OFFSET $1`,
           name === "notifications" ? [offset, current.user.email] : [offset],
         )
       ).rows,
@@ -167,6 +181,22 @@ export class ApiController {
       return row;
     });
   }
+  @Get("workspaces/:tenant/materials/:material/stock-units") async stockUnits(
+    @Req() req: Request,
+    @Param("tenant") tenant: string,
+    @Param("material") material: string,
+  ) {
+    const current = await access(req, tenant, "catalog:read");
+    id.parse(material);
+    return transaction(current.user.id, tenant, async (db) => ({
+      items: (
+        await db.query(
+          "SELECT c.input_unit_id AS id,u.code,u.name,c.factor,m.unit AS stock_unit FROM material_unit_conversions c JOIN units u ON u.tenant_id=c.tenant_id AND u.id=c.input_unit_id JOIN materials m ON m.tenant_id=c.tenant_id AND m.id=c.material_id WHERE c.material_id=$1 ORDER BY u.code",
+          [material],
+        )
+      ).rows,
+    }));
+  }
   @Post("workspaces/:tenant/movements") async movement(
     @Req() req: Request,
     @Param("tenant") tenant: string,
@@ -179,6 +209,7 @@ export class ApiController {
           warehouse_id: id,
           direction: z.enum(["in", "out"]),
           quantity: positive,
+          input_unit_id: id.nullable().default(null),
           note: z.string().max(300).default(""),
           idempotency_key: id,
         })
@@ -186,36 +217,22 @@ export class ApiController {
         .parse(body);
     return transaction(current.user.id, tenant, async (db) => {
       await entitlement(db);
-      const existing = (
-          await db.query(
-            "SELECT * FROM stock_movements WHERE idempotency_key=$1",
-            [data.idempotency_key],
-          )
-        ).rows[0],
-        signed = data.direction === "out" ? `-${data.quantity}` : data.quantity;
-      if (existing) {
-        if (
-          existing.material_id !== data.material_id ||
-          existing.warehouse_id !== data.warehouse_id ||
-          !new Decimal(existing.quantity).eq(signed)
-        )
-          throw new HttpException("IDEMPOTENCY_CONFLICT", 409);
-        return existing;
-      }
-      const inserted = await db.query(
-        "INSERT INTO stock_movements(tenant_id,material_id,warehouse_id,quantity,note,idempotency_key) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(tenant_id,idempotency_key) DO NOTHING RETURNING *",
+      const result = await db.query<{ id: string }>(
+        "SELECT record_stock_movement($1,$2,$3,$4,$5,$6) id",
         [
-          tenant,
           data.material_id,
           data.warehouse_id,
-          signed,
+          data.direction === "out" ? `-${data.quantity}` : data.quantity,
+          data.input_unit_id,
           data.note,
           data.idempotency_key,
         ],
       );
-      if (!inserted.rowCount)
-        throw new HttpException("REQUEST_IN_PROGRESS_RETRY", 409);
-      return inserted.rows[0];
+      return (
+        await db.query("SELECT * FROM stock_movements WHERE id=$1", [
+          result.rows[0].id,
+        ])
+      ).rows[0];
     });
   }
   @Post("workspaces/:tenant/transfers") async transferStock(

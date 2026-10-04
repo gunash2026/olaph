@@ -19,6 +19,7 @@ beforeAll(async () => {
     "0007_stock_counts",
     "0008_stock_transfers",
     "0009_purchase_entitlement",
+    "0010_material_units",
   ])
     await db.exec(
       await readFile(`packages/database/migrations/${name}.sql`, "utf8"),
@@ -89,6 +90,303 @@ async function move(qty: string, key = "70000000-0000-4000-8000-000000000001") {
     [tenant, material, warehouse, qty, key],
   );
 }
+async function conversion(factor = "2.88", code = "sheet") {
+  const unit = (
+    await db.query<{ id: string }>(
+      "INSERT INTO units(tenant_id,code,name) VALUES($1,$2,'Input unit') RETURNING id",
+      [tenant, code],
+    )
+  ).rows[0].id;
+  await db.query(
+    "INSERT INTO material_unit_conversions(tenant_id,material_id,input_unit_id,factor) VALUES($1,$2,$3,$4)",
+    [tenant, material, unit, factor],
+  );
+  return unit;
+}
+async function convertedMove(
+  unit: string | null,
+  qty = "3",
+  key = "60000000-0000-4000-8000-000000000001",
+  note = "Converted receipt",
+) {
+  return (
+    await db.query<{ id: string }>(
+      "SELECT record_stock_movement($1,$2,$3,$4,$5,$6) id",
+      [material, warehouse, qty, unit, note, key],
+    )
+  ).rows[0].id;
+}
+it("converts material-specific units exactly and retains the input, coefficient and stock unit in audit", async () => {
+  await actor(async () => {
+    const unit = await conversion(),
+      movement = await convertedMove(unit);
+    const expected = {
+      quantity: "8.640000",
+      input_quantity: "3",
+      input_unit: "sheet",
+      conversion_factor: "2.88",
+      stock_unit: "unit",
+    };
+    expect(
+      (
+        await db.query(
+          "SELECT quantity,input_quantity,input_unit,conversion_factor,stock_unit FROM stock_movements WHERE id=$1",
+          [movement],
+        )
+      ).rows[0],
+    ).toEqual(expected);
+    expect(
+      (await db.query<{ quantity: string }>("SELECT quantity FROM materials"))
+        .rows[0].quantity,
+    ).toBe("8.640000");
+    expect(
+      (
+        await db.query<{ new_value: Record<string, unknown> }>(
+          "SELECT new_value FROM audit_log WHERE entity='stock_movements' AND entity_id=$1",
+          [movement],
+        )
+      ).rows[0].new_value,
+    ).toMatchObject({
+      input_unit: "sheet",
+      input_quantity: 3,
+      conversion_factor: 2.88,
+      stock_unit: "unit",
+    });
+  });
+});
+it("retries use the original snapshot after the coefficient and unit code are changed", async () => {
+  await actor(async () => {
+    const unit = await conversion(),
+      first = await convertedMove(unit);
+    await db.query(
+      "UPDATE material_unit_conversions SET factor=4 WHERE input_unit_id=$1",
+      [unit],
+    );
+    await db.query("UPDATE units SET code='renamed' WHERE id=$1", [unit]);
+    expect(await convertedMove(unit)).toBe(first);
+    const second = await convertedMove(
+      unit,
+      "3",
+      "60000000-0000-4000-8000-000000000002",
+    );
+    expect(
+      (await db.query<{ quantity: string }>("SELECT quantity FROM materials"))
+        .rows[0].quantity,
+    ).toBe("20.640000");
+    expect(
+      (
+        await db.query(
+          "SELECT input_unit,conversion_factor FROM stock_movements WHERE id=$1",
+          [first],
+        )
+      ).rows[0],
+    ).toEqual({ input_unit: "sheet", conversion_factor: "2.88" });
+    expect(
+      (
+        await db.query(
+          "SELECT input_unit,conversion_factor FROM stock_movements WHERE id=$1",
+          [second],
+        )
+      ).rows[0],
+    ).toEqual({ input_unit: "renamed", conversion_factor: "4" });
+  });
+});
+it.each(["unit", "quantity", "note"])(
+  "rejects retrying a stock key with a different %s",
+  async (changed) => {
+    await actor(async () => {
+      const unit = await conversion();
+      await convertedMove(unit);
+      await expect(
+        convertedMove(
+          changed === "unit" ? null : unit,
+          changed === "quantity" ? "2" : "3",
+          undefined,
+          changed === "note" ? "Other note" : undefined,
+        ),
+      ).rejects.toThrow("IDEMPOTENCY_CONFLICT");
+    });
+  },
+);
+it.each([
+  ["0.000001", "0.1"],
+  ["999999999999", "2"],
+])(
+  "rejects unrepresentable conversions (%s × %s) instead of rounding",
+  async (factor, qty) => {
+    await actor(async () => {
+      await expect(
+        convertedMove(await conversion(factor), qty),
+      ).rejects.toThrow("CONVERTED_QUANTITY_OUT_OF_RANGE");
+    });
+  },
+);
+it("does not round coefficients stored through direct database access", async () => {
+  await actor(async () => {
+    await expect(conversion("0.1234567")).rejects.toThrow();
+  });
+});
+it("converted outbound movements respect reservations", async () => {
+  await actor(async () => {
+    const unit = await conversion("2");
+    await convertedMove(unit, "5");
+    await db.query("SELECT reserve_stock($1,$2,$3,7)", [
+      order,
+      material,
+      warehouse,
+    ]);
+    await expect(
+      convertedMove(unit, "-2", "60000000-0000-4000-8000-000000000002"),
+    ).rejects.toThrow("INSUFFICIENT_AVAILABLE_STOCK");
+  });
+});
+it("keeps stock quantities signed and snapshots base-unit inserts too", async () => {
+  await actor(async () => {
+    const unit = await conversion("2");
+    await convertedMove(unit, "5");
+    const outgoing = await convertedMove(
+      unit,
+      "-2",
+      "60000000-0000-4000-8000-000000000002",
+    );
+    expect(
+      (
+        await db.query(
+          "SELECT quantity,input_quantity FROM stock_movements WHERE id=$1",
+          [outgoing],
+        )
+      ).rows[0],
+    ).toEqual({ quantity: "-4.000000", input_quantity: "-2" });
+    await move("0.1");
+    expect(
+      (
+        await db.query(
+          "SELECT input_unit,stock_unit,conversion_factor FROM stock_movements WHERE input_unit_id IS NULL",
+        )
+      ).rows[0],
+    ).toEqual({
+      input_unit: "unit",
+      stock_unit: "unit",
+      conversion_factor: "1",
+    });
+  });
+});
+it("does not infer a conversion from a general unit definition", async () => {
+  await actor(async () => {
+    const unit = (
+      await db.query<{ id: string }>(
+        "INSERT INTO units(tenant_id,code,name,factor) VALUES($1,'pack','Pack',10) RETURNING id",
+        [tenant],
+      )
+    ).rows[0].id;
+    await expect(convertedMove(unit)).rejects.toThrow(
+      "UNIT_CONVERSION_NOT_FOUND",
+    );
+  });
+});
+it.each(["conversion", "movement"])(
+  "prevents changing a material stock unit after a %s exists",
+  async (kind) => {
+    await actor(async () => {
+      if (kind === "conversion") await conversion();
+      else await move("1");
+      await expect(
+        db.query("UPDATE materials SET unit='m2' WHERE id=$1", [material]),
+      ).rejects.toThrow("MATERIAL_UNIT_IN_USE");
+    });
+  },
+);
+it("runtime cannot forge conversion snapshots", async () => {
+  await actor(async () => {
+    await expect(
+      db.query(
+        "INSERT INTO stock_movements(tenant_id,material_id,warehouse_id,quantity,idempotency_key,input_quantity,conversion_factor,input_unit,stock_unit) VALUES($1,$2,$3,100,gen_random_uuid(),1,100,'forged','unit')",
+        [tenant, material, warehouse],
+      ),
+    ).rejects.toThrow(/permission denied/);
+  });
+});
+it("a foreign tenant context cannot read conversions or post converted stock", async () => {
+  await actor(
+    async () => {
+      expect(
+        (await db.query("SELECT * FROM material_unit_conversions")).rows,
+      ).toHaveLength(0);
+      await expect(convertedMove(null)).rejects.toThrow("FORBIDDEN");
+    },
+    "bob",
+    tenant,
+  );
+});
+it("conversion definitions cannot reference another tenant's unit", async () => {
+  await actor(async () => {
+    await db.query(
+      "SELECT set_config('app.user_id','bob',true),set_config('app.tenant_id',$1,true)",
+      [other],
+    );
+    const unit = (
+      await db.query<{ id: string }>(
+        "INSERT INTO units(tenant_id,code,name) VALUES($1,'foreign','Foreign') RETURNING id",
+        [other],
+      )
+    ).rows[0].id;
+    await db.query(
+      "SELECT set_config('app.user_id','alice',true),set_config('app.tenant_id',$1,true)",
+      [tenant],
+    );
+    await expect(
+      db.query(
+        "INSERT INTO material_unit_conversions(tenant_id,material_id,input_unit_id,factor) VALUES($1,$2,$3,1)",
+        [tenant, material, unit],
+      ),
+    ).rejects.toThrow("STOCK_REFERENCE_NOT_FOUND");
+  });
+});
+it("the same input unit can have different coefficients for different materials", async () => {
+  await actor(async () => {
+    const unit = await conversion("2.88");
+    const second = (
+      await db.query<{ id: string }>(
+        "INSERT INTO materials(tenant_id,code,name,unit) VALUES($1,'OTHER-SHEET','Other material','m2') RETURNING id",
+        [tenant],
+      )
+    ).rows[0].id;
+    await db.query(
+      "INSERT INTO material_unit_conversions(tenant_id,material_id,input_unit_id,factor) VALUES($1,$2,$3,1.5)",
+      [tenant, second, unit],
+    );
+    await convertedMove(unit, "2");
+    await db.query(
+      "SELECT record_stock_movement($1,$2,2,$3,'Second material',gen_random_uuid())",
+      [second, warehouse, unit],
+    );
+    expect(
+      (await db.query("SELECT code,quantity FROM materials ORDER BY code"))
+        .rows,
+    ).toEqual([
+      { code: "MAT", quantity: "5.760000" },
+      { code: "OTHER-SHEET", quantity: "3.000000" },
+    ]);
+  });
+});
+it("cannot post a converted movement after the trial ends", async () => {
+  await db.query(
+    "UPDATE subscriptions SET trial_ends_at=now()-interval '1 day' WHERE tenant_id=$1",
+    [tenant],
+  );
+  try {
+    await actor(async () => {
+      await expect(convertedMove(null)).rejects.toThrow(
+        "SUBSCRIPTION_REQUIRED",
+      );
+    });
+  } finally {
+    await db.query(
+      "UPDATE subscriptions SET trial_ends_at=now()+interval '14 days' WHERE tenant_id=$1",
+      [tenant],
+    );
+  }
+});
 it("creates an empty company and four default roles with a 14 day trial", async () => {
   await actor(async () => {
     expect((await db.query("SELECT * FROM tenant_roles")).rows).toHaveLength(4);
@@ -450,13 +748,21 @@ it("rejects stock counts with more than six decimal places instead of rounding s
   });
 });
 it("does not approve purchases after the company trial has expired", async () => {
-  await db.query("UPDATE subscriptions SET trial_ends_at=now()-interval '1 day' WHERE tenant_id=$1", [tenant]);
+  await db.query(
+    "UPDATE subscriptions SET trial_ends_at=now()-interval '1 day' WHERE tenant_id=$1",
+    [tenant],
+  );
   try {
     await actor(async () => {
-      await expect(db.query("SELECT decide_purchase(gen_random_uuid(),'approved')")).rejects.toThrow("SUBSCRIPTION_REQUIRED");
+      await expect(
+        db.query("SELECT decide_purchase(gen_random_uuid(),'approved')"),
+      ).rejects.toThrow("SUBSCRIPTION_REQUIRED");
     });
   } finally {
-    await db.query("UPDATE subscriptions SET trial_ends_at=now()+interval '14 days' WHERE tenant_id=$1", [tenant]);
+    await db.query(
+      "UPDATE subscriptions SET trial_ends_at=now()+interval '14 days' WHERE tenant_id=$1",
+      [tenant],
+    );
   }
 });
 it("prevents recipes from creating indirect cycles", async () => {

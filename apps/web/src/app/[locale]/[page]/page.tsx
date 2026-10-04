@@ -195,11 +195,24 @@ export default async function Page({
                 {page === "changelog" && (
                   <>
                     <article className="release-entry">
-                      <time className="pill" dateTime="2026-10-04">04.10.2026</time>
+                      <time className="pill" dateTime="2026-10-04">
+                        04.10.2026
+                      </time>
                       <h2>{latestRelease[locale].title}</h2>
-                      <ul>{latestRelease[locale].items.map(item => <li key={item}>{item}</li>)}</ul>
-                      <div className="notice">{latestRelease[locale].scope}</div>
-                      <a className="text-link" href="https://github.com/gunash2026/olaph/pull/1">{latestRelease[locale].link}</a>
+                      <ul>
+                        {latestRelease[locale].items.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                      <div className="notice">
+                        {latestRelease[locale].scope}
+                      </div>
+                      <a
+                        className="text-link"
+                        href="https://github.com/gunash2026/olaph/pull/1"
+                      >
+                        {latestRelease[locale].link}
+                      </a>
                     </article>
                     <span className="pill">v0.1 · 02.10.2026</span>
                     <h2>{c.status}</h2>

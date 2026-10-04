@@ -95,6 +95,16 @@ export const portalResources: Record<string, PortalResource> = {
       f("factor", "Dönüşüm katsayısı", "decimal"),
     ],
   },
+  "material-unit-conversions": {
+    title: "Malzeme birim dönüşümleri",
+    group: "Katalog",
+    permission: "catalog",
+    fields: [
+      relation("material_id", "Malzeme", "materials"),
+      relation("input_unit_id", "Giriş / çıkış birimi", "units"),
+      f("factor", "Bir giriş biriminin stok karşılığı", "decimal"),
+    ],
+  },
   partners: {
     title: "Müşteri ve tedarikçiler",
     group: "İş ortakları",
@@ -422,6 +432,8 @@ export const columnLabels: Record<string, string> = {
   status: "Durum",
   due_date: "Teslim",
   material_id: "Malzeme",
+  material_code: "Malzeme kodu",
+  material_name: "Malzeme adı",
   product_id: "Ürün",
   partner_id: "İş ortağı",
   warehouse_id: "Depo",
@@ -464,4 +476,11 @@ export const columnLabels: Record<string, string> = {
   destination_warehouse_id: "Hedef depo",
   transferred_by: "Aktaran kullanıcı",
   transfer_id: "Aktarım kaydı",
+  input_unit_id: "Giriş / çıkış birimi kaydı",
+  input_quantity: "Girilen miktar",
+  input_unit: "Girilen birim",
+  conversion_factor: "İşlem katsayısı",
+  stock_unit: "Stok birimi",
+  factor: "Dönüşüm katsayısı",
+  base_unit_id: "Temel birim",
 };

@@ -81,6 +81,11 @@ export const resources: Record<string, Resource> = {
       factor: positive.default("1"),
     }),
   },
+  "material-unit-conversions": {
+    table: "material_unit_conversions",
+    permission: "catalog",
+    schema: z.object({ material_id: id, input_unit_id: id, factor: positive }),
+  },
   "partner-codes": {
     table: "partner_codes",
     permission: "catalog",
