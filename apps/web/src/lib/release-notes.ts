@@ -7,6 +7,7 @@ export const latestRelease: Record<
   tr: {
     title: "Kalıcı çalışma alanı ve stok kontrolü",
     items: [
+      "QR ve Code 128 malzeme etiketleri: PNG indirme, yazdırma, okuyucu veya görselle arama ve bulunan malzemeden stok işlemine geçiş.",
       "Doğrulanmış hesap, iki aşamalı doğrulama, firma kurulumu, ekip davetleri ve özelleştirilebilir roller.",
       "Stok sayımı, depolar arası aktarım ve rezervasyon. Yinelenen işlemler ve çakışan sayımlar için kontroller.",
       "Malzemeye özel birim dönüşümleri: paket, levha veya başka birimle giriş/çıkış; geçmişte girilen miktar, katsayı ve stok birimi birlikte saklanır.",
@@ -19,6 +20,7 @@ export const latestRelease: Record<
   en: {
     title: "Persistent workspace and inventory controls",
     items: [
+      "QR and Code 128 material labels: PNG downloads, printing, scanner or image lookup and stock entry from the matched material.",
       "Verified accounts, two-factor authentication, company setup, team invitations and custom roles.",
       "Physical stock counts, warehouse transfers and reservations, with checks for duplicate requests and conflicting counts.",
       "Material-specific unit conversions for stock receipts and issues, preserving the entered quantity, conversion factor and stock unit in each movement.",
@@ -31,6 +33,7 @@ export const latestRelease: Record<
   ar: {
     title: "مساحة عمل دائمة وضبط المخزون",
     items: [
+      "ملصقات مواد QR وCode 128: تنزيل PNG والطباعة والبحث بالقارئ أو الصورة وفتح حركة مخزون للمادة المطابقة.",
       "حسابات موثقة، مصادقة ثنائية، إنشاء شركة، دعوات للفريق وأدوار قابلة للتخصيص.",
       "جرد فعلي، نقل بين المستودعات وحجز المخزون، مع منع تكرار الطلبات وتعارض الجرد.",
       "تحويل الوحدات لكل مادة عند الاستلام والصرف، مع حفظ الكمية المدخلة ومعامل التحويل ووحدة المخزون في سجل الحركة.",
@@ -43,6 +46,7 @@ export const latestRelease: Record<
   zh: {
     title: "持久化工作区与库存控制",
     items: [
+      "物料二维码与 Code 128 标签：下载 PNG、打印、通过扫码器或图片查找，并为匹配物料创建库存流水。",
       "已验证账户、双重身份验证、企业创建、团队邀请及自定义角色。",
       "实物盘点、仓库调拨和库存预留，检查重复请求与盘点冲突。",
       "按物料定义入库和出库的单位换算，并在每笔库存流水中保留输入数量、换算系数及库存单位。",
@@ -55,6 +59,7 @@ export const latestRelease: Record<
   ru: {
     title: "Постоянное рабочее пространство и контроль запасов",
     items: [
+      "Этикетки материалов QR и Code 128: загрузка PNG, печать, поиск сканером или по изображению и создание складской операции для найденного материала.",
       "Подтверждённые аккаунты, двухфакторная аутентификация, создание компании, приглашения и настраиваемые роли.",
       "Инвентаризация, перемещения между складами и резервирование с защитой от повторных запросов и конфликтов пересчёта.",
       "Пересчёт единиц для каждого материала при поступлении и списании с сохранением введённого количества, коэффициента и складской единицы в истории.",

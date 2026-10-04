@@ -491,3 +491,100 @@
   height: 22px;
   accent-color: var(--copper);
 }
+.portal-label-dialog,
+.portal-scan-dialog {
+  display: none;
+}
+.portal-label-dialog[open],
+.portal-scan-dialog[open] {
+  display: grid;
+  gap: 20px;
+}
+.portal-label-sheet {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 20px;
+  background: white;
+  color: #161916;
+  border: 1px solid #deded9;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+.portal-label-sheet img {
+  max-width: 100%;
+  max-height: 320px;
+  object-fit: contain;
+}
+.portal-label-sheet strong {
+  font-size: 20px;
+}
+.portal-label-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.portal-scan-upload {
+  display: grid;
+  gap: 6px;
+  max-width: 100%;
+}
+.portal-scan-upload input {
+  max-width: 100%;
+}
+.portal-scan-video {
+  width: 100%;
+  max-height: 280px;
+  background: #161916;
+  border-radius: 8px;
+}
+.portal-scan-result {
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.portal-scan-result p {
+  margin: 10px 0 20px;
+  overflow-wrap: anywhere;
+}
+@media print {
+  .portal-shell:has(.portal-label-dialog[open]) {
+    display: block;
+    min-height: 0;
+    height: auto;
+  }
+  .portal-shell:has(.portal-label-dialog[open]) > :not(.portal-label-dialog) {
+    display: none !important;
+  }
+  .portal-label-dialog[open] > :not(.portal-label-sheet) {
+    display: none !important;
+  }
+  body:has(.portal-label-dialog[open]) * {
+    visibility: hidden;
+  }
+  body:has(.portal-label-dialog[open]) .portal-label-sheet,
+  body:has(.portal-label-dialog[open]) .portal-label-sheet * {
+    visibility: visible;
+  }
+  .portal-label-dialog[open] {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    overflow: visible;
+    max-height: none;
+  }
+  .portal-label-dialog .portal-label-sheet {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 80mm;
+    border: 0;
+    break-inside: avoid;
+  }
+  .portal-label-dialog::backdrop {
+    background: transparent;
+  }
+}

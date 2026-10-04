@@ -16,6 +16,7 @@ import type { Request, Response } from "express";
 import { verifyRecentIdentity } from "./reauthentication.js";
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
+import { parseMaterialLabel } from "./material-label.js";
 
 import { pool, authPool, transaction } from "./db.js";
 import { id, positive, quantity } from "./resources.js";
@@ -178,6 +179,30 @@ export class ApiController {
           )
         ).rows[0];
       if (!row) throw new NotFoundException();
+      return row;
+    });
+  }
+  @Get("workspaces/:tenant/material-lookup") async materialLookup(
+    @Req() req: Request,
+    @Param("tenant") tenant: string,
+    @Query("value") value: string,
+  ) {
+    const current = await access(req, tenant, "catalog:read");
+    const input = z.string().min(1).max(300).parse(value);
+    let label: ReturnType<typeof parseMaterialLabel>;
+    try {
+      label = parseMaterialLabel(input, tenant);
+    } catch (error) {
+      throw new HttpException((error as Error).message, 400);
+    }
+    return transaction(current.user.id, tenant, async (db) => {
+      const row = (
+        await db.query(
+          `SELECT * FROM materials WHERE ${label.kind === "id" ? "id" : "code"}=$1`,
+          [label.value],
+        )
+      ).rows[0];
+      if (!row) throw new NotFoundException("MATERIAL_NOT_FOUND");
       return row;
     });
   }

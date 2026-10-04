@@ -28,6 +28,12 @@ const secret=new URL(enrollment.totpURI).searchParams.get('secret');assert.ok(se
 await alice('/api/auth/two-factor/verify-totp',{code:totp(secret),trustDevice:false});
 const material=await alice(`/api/workspaces/${tenant}/resources/materials`,{code:'MAT-A',name:'Test material',unit:'unit',minimum:'2'},201);
 const warehouse=await alice(`/api/workspaces/${tenant}/resources/warehouses`,{name:'Main'},201);
+const qrLabel=`OLAPH:1:${tenant}:${material.id}`;
+assert.equal((await alice(`/api/workspaces/${tenant}/material-lookup?value=${encodeURIComponent(qrLabel)}`)).id,material.id);
+assert.equal((await alice(`/api/workspaces/${tenant}/material-lookup?value=MAT-A`)).id,material.id);
+await alice(`/api/workspaces/${tenant}/material-lookup?value=unknown-code`,undefined,404);
+await alice(`/api/workspaces/${tenant}/material-lookup?value=${encodeURIComponent(`OLAPH:1:${randomUUID()}:${material.id}`)}`,undefined,400);
+await alice(`/api/workspaces/${tenant}/material-lookup?value=${encodeURIComponent(`OLAPH:1:${tenant}:${randomUUID()}`)}`,undefined,404);
 const inputUnit=await alice(`/api/workspaces/${tenant}/resources/units`,{code:'pack',name:'Pack'},201);
 await alice(`/api/workspaces/${tenant}/resources/material-unit-conversions`,{material_id:material.id,input_unit_id:inputUnit.id,factor:'2.5'},201);
 assert.equal((await alice(`/api/workspaces/${tenant}/materials/${material.id}/stock-units`)).items[0].factor,'2.5');
@@ -69,6 +75,7 @@ assert.equal((await alice(`/api/workspaces/${tenant}/resources/purchases`)).item
 for(let attempt=0;attempt<5;attempt++)await alice('/api/reauthenticate',{password:'incorrect-password',code:totp(secret)},401);
 await alice('/api/reauthenticate',{password,code:totp(secret)},429);
 const bob=await account('bob');await bob(`/api/workspaces/${tenant}/resources/materials`,undefined,403);
+await bob(`/api/workspaces/${tenant}/material-lookup?value=MAT-A`,undefined,403);
 for(let attempt=0;attempt<6;attempt++)await bob('/api/auth/sign-in/email',{email:bob.email,password});
 const attacker=client();
 for(let attempt=0;attempt<5;attempt++)await attacker('/api/auth/sign-in/email',{email:attempt%2?bob.email.toUpperCase():bob.email,password:'wrong-login-password'},401);

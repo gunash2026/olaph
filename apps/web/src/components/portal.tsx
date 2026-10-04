@@ -31,6 +31,12 @@ import {
 } from "@/lib/portal-resources";
 import { Logo } from "./site";
 import { Captcha, captchaSiteKey } from "./captcha";
+import { materialLabelPayload } from "@olaph/core";
+import {
+  MaterialLabel,
+  MaterialScanner,
+  type LabelMaterial,
+} from "./material-labels";
 type Row = Record<string, unknown>;
 type Workspace = {
   id: string;
@@ -58,6 +64,10 @@ async function api(path: string, body?: unknown, method?: string) {
   return data;
 }
 const errors: Record<string, string> = {
+  INVALID_MATERIAL_LABEL: "Etiket geçerli değil. Malzeme kodunu kontrol edin.",
+  MATERIAL_LABEL_DIFFERENT_COMPANY:
+    "Bu QR etiketi başka bir firmaya ait. Doğru çalışma alanını seçin.",
+  MATERIAL_NOT_FOUND: "Bu firmada etikete karşılık gelen malzeme bulunamadı.",
   SIGN_IN_REQUIRED: "Lütfen giriş yapın.",
   MFA_SETUP_REQUIRED:
     "Yönetici erişimi için iki aşamalı doğrulamayı tamamlayın.",
@@ -108,6 +118,28 @@ const errors: Record<string, string> = {
   REAUTHENTICATION_LOCKED:
     "Beş hatalı doğrulama nedeniyle işlem 15 dakika kilitlendi.",
 };
+const movementFields: Field[] = [
+  { key: "material_id", label: "Malzeme", relation: "materials" },
+  { key: "warehouse_id", label: "Depo", relation: "warehouses" },
+  { key: "direction", label: "Yön", options: ["in", "out"] },
+  { key: "quantity", label: "Miktar", type: "decimal" },
+  {
+    key: "input_unit_id",
+    label: "İşlem birimi",
+    type: "stock-unit",
+    optional: true,
+  },
+  { key: "note", label: "Açıklama", optional: true },
+];
+function labelMaterial(row: Row): LabelMaterial {
+  return {
+    id: String(row.id),
+    code: String(row.code),
+    name: String(row.name),
+    unit: String(row.unit),
+    quantity: String(row.quantity),
+  };
+}
 export function Portal({ locale }: { locale: Locale }) {
   const [session, setSession] = useState<Session | null>(null),
     [workspace, setWorkspace] = useState(""),
@@ -119,6 +151,8 @@ export function Portal({ locale }: { locale: Locale }) {
     [movementUnit, setMovementUnit] = useState(""),
     [unitsLoading, setUnitsLoading] = useState(false),
     [unitsError, setUnitsError] = useState(""),
+    [label, setLabel] = useState<LabelMaterial | null>(null),
+    [scanOpen, setScanOpen] = useState(false),
     [page, setPage] = useState(0),
     [search, setSearch] = useState(""),
     [busy, setBusy] = useState(false),
@@ -173,6 +207,10 @@ export function Portal({ locale }: { locale: Locale }) {
     const token = new URLSearchParams(location.search).get("token");
     if (token) setAuthMode("reset");
   }, [refreshSession]);
+  useEffect(() => {
+    setLabel(null);
+    setScanOpen(false);
+  }, [workspace]);
   useEffect(() => {
     if (modal) {
       dialog.current?.showModal();
@@ -262,12 +300,37 @@ export function Portal({ locale }: { locale: Locale }) {
               ),
           );
       }
+      if (
+        loaded.materials &&
+        values?.material_id &&
+        !loaded.materials.some((row) => row.id === values.material_id)
+      ) {
+        const value = materialLabelPayload(
+          workspace,
+          String(values.material_id),
+        );
+        loaded.materials.push(
+          await api(path(`material-lookup?value=${encodeURIComponent(value)}`)),
+        );
+      }
       setLookups(loaded);
-      setMovementMaterial("");
+      setMovementMaterial(
+        target.endsWith("/movements") ? String(values?.material_id || "") : "",
+      );
       setMovementUnit("");
       operationKey.current = "";
       setModal({ title, fields, path: target, values, method });
     });
+  }
+  async function openMovement(material?: LabelMaterial) {
+    setSection("movements");
+    setPage(0);
+    await openForm(
+      "Stok hareketi",
+      movementFields,
+      path("movements"),
+      material ? { material_id: material.id } : undefined,
+    );
   }
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1024,39 +1087,18 @@ export function Portal({ locale }: { locale: Locale }) {
                 tenant?.permissions.includes("stock:write") && (
                   <button
                     className="button dark"
-                    onClick={() =>
-                      void openForm(
-                        "Stok hareketi",
-                        [
-                          {
-                            key: "material_id",
-                            label: "Malzeme",
-                            relation: "materials",
-                          },
-                          {
-                            key: "warehouse_id",
-                            label: "Depo",
-                            relation: "warehouses",
-                          },
-                          {
-                            key: "direction",
-                            label: "Yön",
-                            options: ["in", "out"],
-                          },
-                          { key: "quantity", label: "Miktar", type: "decimal" },
-                          {
-                            key: "input_unit_id",
-                            label: "İşlem birimi",
-                            type: "stock-unit",
-                            optional: true,
-                          },
-                          { key: "note", label: "Açıklama", optional: true },
-                        ],
-                        path("movements"),
-                      )
-                    }
+                    onClick={() => void openMovement()}
                   >
                     Stok giriş / çıkış
+                  </button>
+                )}
+              {["materials", "movements"].includes(section) &&
+                tenant?.permissions.includes("catalog:read") && (
+                  <button
+                    className="button light"
+                    onClick={() => setScanOpen(true)}
+                  >
+                    Barkod / QR okut
                   </button>
                 )}
               {section === "reservations" && (
@@ -1118,6 +1160,11 @@ export function Portal({ locale }: { locale: Locale }) {
               locale={locale}
               action={(row) => (
                 <>
+                  {section === "materials" && (
+                    <button onClick={() => setLabel(labelMaterial(row))}>
+                      Etiket
+                    </button>
+                  )}
                   {section === "balances" &&
                     tenant?.permissions.includes("stock:write") && (
                       <button
@@ -1327,6 +1374,38 @@ export function Portal({ locale }: { locale: Locale }) {
           </section>
         )}
       </main>
+      {label && (
+        <MaterialLabel
+          workspace={workspace}
+          material={label}
+          onClose={() => setLabel(null)}
+        />
+      )}
+      {scanOpen && (
+        <MaterialScanner
+          onClose={() => setScanOpen(false)}
+          resolve={async (value) => {
+            try {
+              return labelMaterial(
+                await api(
+                  path(`material-lookup?value=${encodeURIComponent(value)}`),
+                ),
+              );
+            } catch (failure) {
+              const message = (failure as Error).message;
+              throw Error(errors[message] || message);
+            }
+          }}
+          onStock={
+            tenant?.permissions.includes("stock:write")
+              ? (material) => {
+                  setScanOpen(false);
+                  void openMovement(material);
+                }
+              : undefined
+          }
+        />
+      )}
       <dialog
         ref={dialog}
         className="portal-dialog"

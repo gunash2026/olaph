@@ -141,13 +141,79 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
   await page.getByRole("button", { name: "Yeni kayıt", exact: true }).click();
   await dialog.getByLabel("Depo adı", { exact: true }).fill("Ana depo");
   await save(page);
-  await section(page, "Stok hareketleri");
+  await section(page, "Malzemeler");
+  await page.getByRole("button", { name: "Etiket", exact: true }).click();
+  for (const format of ["qrcode", "code128"]) {
+    await dialog
+      .getByRole("combobox", { name: "Etiket türü", exact: true })
+      .selectOption(format);
+    await expect(
+      dialog.getByRole("img", {
+        name: `MAT-BROWSER ${format === "qrcode" ? "QR" : "Code 128"} etiketi`,
+        exact: true,
+      }),
+    ).toBeVisible();
+    const downloading = page.waitForEvent("download");
+    await dialog.getByRole("link", { name: "PNG indir", exact: true }).click();
+    await (
+      await downloading
+    ).saveAs(testInfo.outputPath(`material-${format}.png`));
+    if (format === "qrcode") {
+      await page.screenshot({
+        path: testInfo.outputPath("portal-label.png"),
+        fullPage: true,
+      });
+      await testInfo.attach("Material label", {
+        path: testInfo.outputPath("portal-label.png"),
+        contentType: "image/png",
+      });
+    }
+  }
+  await dialog.getByRole("button", { name: "Kapat", exact: true }).click();
   await page
-    .getByRole("button", { name: "Stok giriş / çıkış", exact: true })
+    .getByRole("button", { name: "Barkod / QR okut", exact: true })
     .click();
   await dialog
-    .getByRole("combobox", { name: "Malzeme", exact: true })
-    .selectOption({ label: "Kabul malzemesi · MAT-BROWSER" });
+    .getByLabel("Malzeme kodu veya QR içeriği", { exact: true })
+    .fill("unknown-material");
+  await dialog
+    .getByRole("button", { name: "Malzemeyi bul", exact: true })
+    .click();
+  await expect(dialog.getByRole("alert")).toContainText("bulunamadı");
+  await dialog
+    .getByLabel("Malzeme kodu veya QR içeriği", { exact: true })
+    .fill("MAT-BROWSER");
+  await dialog
+    .getByRole("button", { name: "Malzemeyi bul", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("region", { name: "Bulunan malzeme" }),
+  ).toContainText("Kabul malzemesi");
+  for (const format of ["code128", "qrcode"]) {
+    const lookup = page.waitForResponse(
+      (response) =>
+        response.url().includes("/material-lookup?") &&
+        response.status() === 200,
+    );
+    await dialog
+      .getByLabel("Etiket görseli", { exact: true })
+      .setInputFiles(testInfo.outputPath(`material-${format}.png`));
+    await lookup;
+    await expect(
+      dialog.getByRole("region", { name: "Bulunan malzeme" }),
+    ).toContainText("MAT-BROWSER");
+    await expect(
+      dialog.getByRole("region", { name: "Bulunan malzeme" }),
+    ).toContainText("0.000000 adet");
+  }
+  await dialog
+    .getByRole("button", { name: "Stok hareketi oluştur", exact: true })
+    .click();
+  await expect(
+    dialog
+      .getByRole("combobox", { name: "Malzeme", exact: true })
+      .locator("option:checked"),
+  ).toHaveText("Kabul malzemesi · MAT-BROWSER");
   await dialog
     .getByRole("combobox", { name: "Depo", exact: true })
     .selectOption({ label: "Ana depo" });

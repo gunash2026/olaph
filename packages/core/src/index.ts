@@ -1,6 +1,7 @@
 import Decimal from "decimal.js";
 import { z } from "zod";
 export { parseCsv, toCsv } from "./csv";
+export { materialLabelPayload, supportsCode128 } from "./material-label";
 export const decimal = z
   .string()
   .regex(/^\d+(\.\d{1,6})?$/)
