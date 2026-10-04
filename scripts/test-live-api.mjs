@@ -4,11 +4,11 @@ import { randomUUID,createHmac } from 'node:crypto';
 const origin=process.env.TEST_APP_URL||'http://127.0.0.1:4000',mail=process.env.TEST_MAIL_URL||'http://127.0.0.1:8025';
 if(!['localhost','127.0.0.1'].includes(new URL(origin).hostname))throw Error('This test creates records and is restricted to a local disposable environment.');
 const password='Test-only-account-password-2026!';
-function client(){const cookies=new Map();return async(path,body,expected=200)=>{
- const response=await fetch(`${origin}${path}`,{method:body?'POST':'GET',redirect:'manual',headers:{origin,'content-type':'application/json',cookie:[...cookies].map(([k,v])=>`${k}=${v}`).join('; ')},body:body?JSON.stringify(body):undefined});
+function client(){const cookies=new Map();return async(path,body,expected=200,method=body?'POST':'GET')=>{
+ const response=await fetch(`${origin}${path}`,{method,redirect:'manual',headers:{origin,'content-type':'application/json',cookie:[...cookies].map(([k,v])=>`${k}=${v}`).join('; ')},body:body?JSON.stringify(body):undefined});
  for(const cookie of response.headers.getSetCookie()){const [pair]=cookie.split(';'),at=pair.indexOf('=');cookies.set(pair.slice(0,at),pair.slice(at+1))}
  const text=await response.text();let data;try{data=JSON.parse(text)}catch{data={}}
- assert.equal(response.status,expected,`${path}: HTTP ${response.status}, ${data.message||data.code||'unexpected response'}`);return data;
+ assert.ok(Array.isArray(expected)?expected.includes(response.status):response.status===expected,`${path}: HTTP ${response.status}, ${data.message||data.code||'unexpected response'}`);return data;
 }}
 function totp(secret){const alphabet='ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';let bits='';for(const c of secret.toUpperCase().replaceAll('=',''))bits+=alphabet.indexOf(c).toString(2).padStart(5,'0');const key=Buffer.from((bits.match(/.{8}/g)||[]).map(x=>parseInt(x,2)));const counter=Buffer.alloc(8);counter.writeBigUInt64BE(BigInt(Math.floor(Date.now()/30000)));const hash=createHmac('sha1',key).update(counter).digest();const at=hash[19]&15;return String((hash.readUInt32BE(at)&0x7fffffff)%1000000).padStart(6,'0')}
 async function account(name){const request=client(),email=`${name}-${randomUUID()}@example.test`;
@@ -69,13 +69,42 @@ for(let attempt=0;attempt<40;attempt++){
 }
 assert.ok(notification,'The committed purchase event must reach Mailpit through the restricted outbox worker and Valkey');
 await alice(`/api/workspaces/${tenant}/purchases/${purchase.id}/decision`,{decision:'approved'},428);
+const fieldDefinition={entity:'materials',key:'quality',label:'Quality',kind:'select',options:['A','B'],required:false,active:true,position:0};
+await alice(`/api/workspaces/${tenant}/resources/custom-fields`,fieldDefinition,428);
 await alice('/api/reauthenticate',{password,code:totp(secret)},201);
 await alice(`/api/workspaces/${tenant}/purchases/${purchase.id}/decision`,{decision:'approved'},201);
 assert.equal((await alice(`/api/workspaces/${tenant}/resources/purchases`)).items[0].status,'approved');
+const field=await alice(`/api/workspaces/${tenant}/resources/custom-fields`,fieldDefinition,201);
+const checkedDefinition={entity:'materials',key:'checked',label:'Checked',kind:'boolean'};
+const checkedField=await alice(`/api/workspaces/${tenant}/resources/custom-fields`,checkedDefinition,201);
+const editMaterial={code:material.code,name:material.name,unit:material.unit,minimum:'2'};
+const materialPath=`/api/workspaces/${tenant}/resources/materials/${material.id}`;
+await alice(materialPath,{...editMaterial,custom_fields:{quality:'A'}},200,'PATCH');
+assert.equal((await alice(materialPath,{...editMaterial,name:'Edited without custom values'},200,'PATCH')).custom_fields.quality,'A');
+await Promise.all([
+ alice(materialPath,{...editMaterial,custom_fields:{quality:'B'}},200,'PATCH'),
+ alice(materialPath,{...editMaterial,custom_fields:{checked:false}},200,'PATCH'),
+]);
+assert.deepEqual((await alice(`/api/workspaces/${tenant}/material-lookup?value=MAT-A`)).custom_fields,{quality:'B',checked:false});
+const schemaRace=await Promise.all([
+ alice(`/api/workspaces/${tenant}/resources/custom-fields/${checkedField.id}`,{...checkedDefinition,required:true},[200,409],'PATCH'),
+ alice(materialPath,{...editMaterial,custom_fields:{checked:null}},[200,409],'PATCH'),
+]);
+assert.equal(schemaRace.filter(result=>result.message).length,1,'A concurrent schema change and invalidating edit must not both succeed');
+const invalidValue=await alice(materialPath,{...editMaterial,custom_fields:{quality:'invalid'}},409,'PATCH');
+assert.equal(invalidValue.message,'CUSTOM_FIELD_VALUE_INVALID');assert.equal(invalidValue.field,'quality');
+await alice(`/api/workspaces/${tenant}/resources/custom-fields/${field.id}`,{...fieldDefinition,options:['A']},409,'PATCH');
+await alice(`/api/workspaces/${tenant}/resources/custom-fields/${field.id}`,{...fieldDefinition,required:true},200,'PATCH');
+await alice(`/api/workspaces/${tenant}/resources/materials`,{...editMaterial,code:'MISSING-REQUIRED'},409);
+assert.equal((await alice(`/api/workspaces/${tenant}/custom-fields/materials`)).items.length,2);
+await alice(`/api/workspaces/${tenant}/resources/custom-fields/${field.id}`,{...fieldDefinition,active:false},200,'PATCH');
+assert.equal((await alice(materialPath,editMaterial,200,'PATCH')).custom_fields.quality,'B');
+await alice(materialPath,{...editMaterial,custom_fields:{quality:'A'}},409,'PATCH');
 for(let attempt=0;attempt<5;attempt++)await alice('/api/reauthenticate',{password:'incorrect-password',code:totp(secret)},401);
 await alice('/api/reauthenticate',{password,code:totp(secret)},429);
 const bob=await account('bob');await bob(`/api/workspaces/${tenant}/resources/materials`,undefined,403);
 await bob(`/api/workspaces/${tenant}/material-lookup?value=MAT-A`,undefined,403);
+await bob(`/api/workspaces/${tenant}/custom-fields/materials`,undefined,403);
 for(let attempt=0;attempt<6;attempt++)await bob('/api/auth/sign-in/email',{email:bob.email,password});
 const attacker=client();
 for(let attempt=0;attempt<5;attempt++)await attacker('/api/auth/sign-in/email',{email:attempt%2?bob.email.toUpperCase():bob.email,password:'wrong-login-password'},401);

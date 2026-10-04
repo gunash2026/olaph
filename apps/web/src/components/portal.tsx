@@ -38,6 +38,14 @@ import {
   type LabelMaterial,
 } from "./material-labels";
 type Row = Record<string, unknown>;
+type CustomDefinition = {
+  key: string;
+  label: string;
+  kind: string;
+  required: boolean;
+  active: boolean;
+  options: string[];
+};
 type Workspace = {
   id: string;
   name: string;
@@ -60,10 +68,29 @@ async function api(path: string, body?: unknown, method?: string) {
       body instanceof FormData ? body : body ? JSON.stringify(body) : undefined,
   });
   const data = await response.json();
-  if (!response.ok) throw Error(data.message || `HTTP_${response.status}`);
+  if (!response.ok)
+    throw Error(
+      data.field
+        ? `${errors[data.message] || data.message} (${data.field})`
+        : data.message || `HTTP_${response.status}`,
+    );
   return data;
 }
 const errors: Record<string, string> = {
+  CUSTOM_FIELD_REQUIRED: "Zorunlu özel alanı doldurun.",
+  CUSTOM_FIELD_VALUE_INVALID:
+    "Özel alanın değeri seçilen türe veya seçeneklere uygun değil.",
+  CUSTOM_FIELD_NOT_ACTIVE:
+    "Bu özel alan tanımlı veya etkin değil. Formu yeniden açın.",
+  CUSTOM_FIELD_IDENTITY_IMMUTABLE:
+    "Alan kodu, kart türü ve alan türü sonradan değiştirilemez. Yeni alan tanımlayın.",
+  CUSTOM_FIELD_EXISTING_VALUES_INVALID:
+    "Bu tanım mevcut kartları geçersiz kılıyor. Önce kartlardaki değerleri doldurun veya düzeltin.",
+  CUSTOM_FIELD_LIMIT:
+    "Her kart türünde en fazla 50 etkin, toplam 200 özel alan tanımlanabilir.",
+  INVALID_CUSTOM_FIELD_DEFINITION:
+    "Seçim listesinde benzersiz seçenekler yazın. Diğer alan türlerinde seçenekleri boş bırakın.",
+  INVALID_CUSTOM_FIELDS: "Özel alanların biçimi veya boyutu geçerli değil.",
   INVALID_MATERIAL_LABEL: "Etiket geçerli değil. Malzeme kodunu kontrol edin.",
   MATERIAL_LABEL_DIFFERENT_COMPANY:
     "Bu QR etiketi başka bir firmaya ait. Doğru çalışma alanını seçin.",
@@ -146,6 +173,9 @@ export function Portal({ locale }: { locale: Locale }) {
     [section, setSection] = useState("overview"),
     [rows, setRows] = useState<Row[]>([]),
     [lookups, setLookups] = useState<Record<string, Row[]>>({}),
+    [customDefinitions, setCustomDefinitions] = useState<CustomDefinition[]>(
+      [],
+    ),
     [movementMaterial, setMovementMaterial] = useState(""),
     [movementUnits, setMovementUnits] = useState<Row[]>([]),
     [movementUnit, setMovementUnit] = useState(""),
@@ -164,6 +194,7 @@ export function Portal({ locale }: { locale: Locale }) {
       method?: string;
       values?: Row;
       title: string;
+      customEntity?: string;
     } | null>(null),
     [authMode, setAuthMode] = useState("login"),
     [totp, setTotp] = useState(""),
@@ -255,6 +286,12 @@ export function Portal({ locale }: { locale: Locale }) {
         `/workspaces/${workspace}/resources/${section}?page=${page}`,
       );
       setRows(data.items);
+      setCustomDefinitions(
+        ["materials", "products", "partners"].includes(section)
+          ? (await api(`/workspaces/${workspace}/custom-fields/${section}`))
+              .items
+          : [],
+      );
     } else if (section === "needs" || section === "members") {
       const data = await api(`/workspaces/${workspace}/${section}`);
       setRows(data.items);
@@ -319,7 +356,72 @@ export function Portal({ locale }: { locale: Locale }) {
       );
       setMovementUnit("");
       operationKey.current = "";
-      setModal({ title, fields, path: target, values, method });
+      const entity = target.split("/resources/")[1]?.split("/")[0];
+      const customEntity = ["materials", "products", "partners"].includes(
+        entity,
+      )
+        ? entity
+        : undefined;
+      let formFields = fields;
+      let formValues = values;
+      if (customEntity) {
+        const definitions: CustomDefinition[] = (
+          await api(path(`custom-fields/${customEntity}`))
+        ).items;
+        const existing = (values?.custom_fields || {}) as Row;
+        formFields = [
+          ...fields,
+          ...definitions
+            .filter((definition) => definition.active)
+            .map(
+              (definition): Field => ({
+                key: `custom:${definition.key}`,
+                label: definition.label,
+                custom: true,
+                type:
+                  definition.kind === "decimal"
+                    ? "signed-decimal"
+                    : definition.kind === "boolean"
+                      ? "boolean-select"
+                      : definition.kind === "select"
+                        ? "text"
+                        : definition.kind,
+                options:
+                  definition.kind === "select"
+                    ? definition.options
+                    : definition.kind === "boolean"
+                      ? ["true", "false"]
+                      : undefined,
+                optional: !definition.required,
+                maxLength: 500,
+              }),
+            ),
+        ];
+        formValues = {
+          ...values,
+          ...Object.fromEntries(
+            definitions.map((definition) => [
+              `custom:${definition.key}`,
+              existing[definition.key] == null
+                ? ""
+                : String(existing[definition.key]),
+            ]),
+          ),
+        };
+      }
+      if (entity === "custom-fields" && values)
+        formFields = fields.map((field) => ({
+          ...field,
+          readOnly: ["entity", "key", "kind"].includes(field.key),
+        }));
+      setModal({
+        title,
+        fields: formFields,
+        path: target,
+        values: formValues,
+        method,
+        customEntity,
+      });
     });
   }
   async function openMovement(material?: LabelMaterial) {
@@ -337,7 +439,24 @@ export function Portal({ locale }: { locale: Locale }) {
     const data = new FormData(event.currentTarget);
     await run(async () => {
       const payload: Row = {};
+      const custom: Row = {};
       for (const field of modal!.fields) {
+        if (field.custom) {
+          const raw = String(data.get(field.key) || "").trim();
+          custom[field.key.slice(7)] = !raw
+            ? null
+            : field.type === "boolean-select"
+              ? raw === "true"
+              : raw;
+          continue;
+        }
+        if (field.type === "lines") {
+          payload[field.key] = String(data.get(field.key) || "")
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter(Boolean);
+          continue;
+        }
         if (field.type === "checkbox") {
           payload[field.key] = data.has(field.key);
           continue;
@@ -346,7 +465,10 @@ export function Portal({ locale }: { locale: Locale }) {
           payload[field.key] = data.getAll(field.key).map(String);
           continue;
         }
-        const raw = String(data.get(field.key) || "");
+        const raw = String(
+          (field.readOnly ? modal!.values?.[field.key] : data.get(field.key)) ??
+            "",
+        );
         if (!raw && field.optional) {
           if (field.relation) payload[field.key] = null;
           continue;
@@ -358,6 +480,7 @@ export function Portal({ locale }: { locale: Locale }) {
               ? new Date(raw).toISOString()
               : raw;
       }
+      if (modal!.customEntity) payload.custom_fields = custom;
       if (
         modal!.path.endsWith("/movements") ||
         modal!.path.endsWith("/stock-counts") ||
@@ -1005,7 +1128,7 @@ export function Portal({ locale }: { locale: Locale }) {
                 {resource &&
                   !resource.readOnly &&
                   tenant?.permissions.includes(
-                    `${resource.permission}:write`,
+                    resource.writePermission || `${resource.permission}:write`,
                   ) && (
                     <button
                       className="button dark"
@@ -1152,6 +1275,12 @@ export function Portal({ locale }: { locale: Locale }) {
                 )}
             </div>
             <DataTable
+              customDefinitions={customDefinitions}
+              columnOverrides={
+                section === "custom-fields"
+                  ? { required: "Zorunlu", entity: "Kart türü" }
+                  : undefined
+              }
               rows={rows.filter((row) =>
                 JSON.stringify(row)
                   .toLocaleLowerCase(locale)
@@ -1267,7 +1396,8 @@ export function Portal({ locale }: { locale: Locale }) {
                     !resource.immutable &&
                     !resource.readOnly &&
                     tenant?.permissions.includes(
-                      `${resource.permission}:write`,
+                      resource.writePermission ||
+                        `${resource.permission}:write`,
                     ) && (
                       <button
                         onClick={() =>
@@ -1434,6 +1564,16 @@ export function Portal({ locale }: { locale: Locale }) {
               geçmiş hareketleri değiştirmez.
             </p>
           )}
+          {modal?.path.includes("/resources/custom-fields") && (
+            <p className="portal-hint">
+              Alan kodunda küçük Latin harfleri, rakam ve alt çizgi kullanın;
+              harfle başlayın. Kod ve tür sonradan değişmez. Mevcut kartlar
+              varsa alanı önce isteğe bağlı oluşturun, değerlerini doldurun,
+              sonra zorunlu yapın. Etkin işaretini kaldırmak geçmiş değerleri
+              silmez. Tanım kaydı için Güvenlik ekranından yeniden doğrulama
+              gerekir.
+            </p>
+          )}
           {modal?.fields.map((field) =>
             field.type === "permissions" ? (
               <fieldset key={field.key}>
@@ -1487,13 +1627,18 @@ export function Portal({ locale }: { locale: Locale }) {
                   <input
                     type="checkbox"
                     name={field.key}
-                    defaultChecked={modal.values?.[field.key] !== false}
+                    defaultChecked={Boolean(
+                      modal.values?.[field.key] ?? field.defaultValue ?? true,
+                    )}
                   />
                 ) : field.options || field.relation ? (
                   <select
                     name={field.key}
                     required={!field.optional}
-                    defaultValue={String(modal.values?.[field.key] || "")}
+                    defaultValue={String(
+                      modal.values?.[field.key] ?? field.defaultValue ?? "",
+                    )}
+                    disabled={field.readOnly}
                     onChange={
                       field.key === "material_id" &&
                       modal.path.endsWith("/movements")
@@ -1507,7 +1652,13 @@ export function Portal({ locale }: { locale: Locale }) {
                     <option value="">Seçin</option>
                     {field.options?.map((value) => (
                       <option key={value} value={value}>
-                        {valueLabels[value] || value}
+                        {field.custom
+                          ? field.type === "boolean-select"
+                            ? value === "true"
+                              ? "Evet"
+                              : "Hayır"
+                            : value
+                          : valueLabels[value] || value}
                       </option>
                     ))}
                     {field.relation &&
@@ -1518,29 +1669,45 @@ export function Portal({ locale }: { locale: Locale }) {
                         </option>
                       ))}
                   </select>
-                ) : field.type === "textarea" ? (
+                ) : field.type === "textarea" || field.type === "lines" ? (
                   <textarea
                     name={field.key}
                     required={!field.optional}
-                    maxLength={2000}
-                    defaultValue={String(modal.values?.[field.key] || "")}
+                    maxLength={field.type === "lines" ? 4100 : 2000}
+                    defaultValue={
+                      field.type === "lines" &&
+                      Array.isArray(modal.values?.[field.key])
+                        ? (modal.values[field.key] as string[]).join("\n")
+                        : String(modal.values?.[field.key] || "")
+                    }
                   />
                 ) : (
                   <input
                     name={field.key}
                     type={
-                      field.type === "decimal" ? "text" : field.type || "text"
+                      field.type === "decimal" ||
+                      field.type === "signed-decimal"
+                        ? "text"
+                        : field.type || "text"
                     }
                     readOnly={field.readOnly}
-                    inputMode={field.type === "decimal" ? "decimal" : undefined}
+                    inputMode={
+                      field.type?.includes("decimal") ? "decimal" : undefined
+                    }
                     pattern={
-                      field.type === "decimal"
-                        ? "[0-9]+([.][0-9]{1,6})?"
+                      field.type === "decimal" ||
+                      field.type === "signed-decimal"
+                        ? `${field.type === "signed-decimal" ? "-?" : ""}[0-9]+([.][0-9]{1,6})?`
                         : undefined
                     }
                     required={!field.optional}
-                    defaultValue={String(modal.values?.[field.key] ?? "")}
-                    maxLength={field.type === "decimal" ? 20 : 160}
+                    defaultValue={String(
+                      modal.values?.[field.key] ?? field.defaultValue ?? "",
+                    )}
+                    maxLength={
+                      field.maxLength ||
+                      (field.type?.includes("decimal") ? 20 : 160)
+                    }
                   />
                 )}
               </label>
@@ -1571,23 +1738,20 @@ function DataTable({
   rows,
   locale,
   action,
+  customDefinitions = [],
+  columnOverrides = {},
 }: {
   rows: Row[];
   locale: string;
   action?: (row: Row) => React.ReactNode;
+  customDefinitions?: CustomDefinition[];
+  columnOverrides?: Record<string, string>;
 }) {
   const keys = [...new Set(rows.flatMap((row) => Object.keys(row)))].filter(
     (key) =>
       !(key === "material_id" && rows.every((row) => row.material_name)) &&
       !(key === "input_unit_id" && rows.every((row) => row.input_unit)) &&
-      ![
-        "tenant_id",
-        "id",
-        "custom_fields",
-        "idempotency_key",
-        "sha256",
-        "rows",
-      ].includes(key),
+      !["tenant_id", "id", "idempotency_key", "sha256", "rows"].includes(key),
   );
   return rows.length ? (
     <div className="portal-table-wrap">
@@ -1595,7 +1759,11 @@ function DataTable({
         <thead>
           <tr>
             {keys.map((key) => (
-              <th key={key}>{columnLabels[key] || key.replaceAll("_", " ")}</th>
+              <th key={key}>
+                {columnOverrides[key] ||
+                  columnLabels[key] ||
+                  key.replaceAll("_", " ")}
+              </th>
             ))}
             {action && <th>İşlem</th>}
           </tr>
@@ -1605,7 +1773,36 @@ function DataTable({
             <tr key={String(row.id || i)}>
               {keys.map((key) => (
                 <td key={key}>
-                  {key === "permissions" && Array.isArray(row[key]) ? (
+                  {key === "custom_fields" &&
+                  row[key] &&
+                  typeof row[key] === "object" ? (
+                    <dl className="portal-custom-values">
+                      {Object.entries(row[key] as Row).map(([field, value]) => {
+                        const definition = customDefinitions.find(
+                          (entry) => entry.key === field,
+                        );
+                        return (
+                          <div key={field}>
+                            <dt>
+                              {definition?.label || field}
+                              {definition && !definition.active
+                                ? " (arşiv)"
+                                : ""}
+                            </dt>
+                            <dd>
+                              {value == null
+                                ? "—"
+                                : typeof value === "boolean"
+                                  ? value
+                                    ? "Evet"
+                                    : "Hayır"
+                                  : String(value)}
+                            </dd>
+                          </div>
+                        );
+                      })}
+                    </dl>
+                  ) : key === "permissions" && Array.isArray(row[key]) ? (
                     <ul>
                       {(row[key] as string[]).map((permission) => (
                         <li key={permission}>{permissionLabel(permission)}</li>

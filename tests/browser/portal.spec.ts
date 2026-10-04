@@ -282,6 +282,86 @@ test("verified signup, MFA, inventory, role settings and persistent session", as
     .getByRole("button", { name: "Yeniden doğrula", exact: true })
     .click();
   await expect(page.getByRole("status")).toContainText("5 dakika");
+  await section(page, "Özel alanlar");
+  for (const field of [
+    { key: "quality", label: "Kalite sınıfı", kind: "select", options: "A\nB" },
+    { key: "thickness", label: "Ölçüm", kind: "decimal", options: "" },
+    { key: "checked", label: "Kontrol edildi", kind: "boolean", options: "" },
+  ]) {
+    await page.getByRole("button", { name: "Yeni kayıt", exact: true }).click();
+    await dialog
+      .getByRole("combobox", { name: "Kart türü", exact: true })
+      .selectOption("materials");
+    await dialog.getByLabel("Alan kodu", { exact: true }).fill(field.key);
+    await dialog.getByLabel("Görünen ad", { exact: true }).fill(field.label);
+    await dialog
+      .getByRole("combobox", { name: "Alan türü", exact: true })
+      .selectOption(field.kind);
+    await dialog
+      .getByLabel("Seçenekler (her satıra bir seçenek) (isteğe bağlı)", {
+        exact: true,
+      })
+      .fill(field.options);
+    await expect(
+      dialog.getByLabel("Zorunlu", { exact: true }),
+    ).not.toBeChecked();
+    await save(page);
+  }
+  await section(page, "Malzemeler");
+  await page.getByRole("button", { name: "Düzenle", exact: true }).click();
+  await dialog
+    .getByRole("combobox", {
+      name: "Kalite sınıfı (isteğe bağlı)",
+      exact: true,
+    })
+    .selectOption("A");
+  await dialog
+    .getByLabel("Ölçüm (isteğe bağlı)", { exact: true })
+    .fill("0.123456");
+  await dialog
+    .getByRole("combobox", {
+      name: "Kontrol edildi (isteğe bağlı)",
+      exact: true,
+    })
+    .selectOption("false");
+  await save(page);
+  await page.reload();
+  await section(page, "Malzemeler");
+  await expect(page.getByRole("table")).toContainText("0.123456");
+  await expect(page.getByRole("table")).toContainText("Kalite sınıfı");
+  await expect(page.getByRole("table")).toContainText("Hayır");
+  await page.screenshot({
+    path: testInfo.outputPath("portal-custom-fields.png"),
+    fullPage: true,
+  });
+  await testInfo.attach("Custom fields", {
+    path: testInfo.outputPath("portal-custom-fields.png"),
+    contentType: "image/png",
+  });
+  await section(page, "Özel alanlar");
+  await page
+    .getByRole("row")
+    .filter({ hasText: "Kalite sınıfı" })
+    .getByRole("button", { name: "Düzenle", exact: true })
+    .click();
+  await expect(dialog.getByLabel("Alan kodu", { exact: true })).toHaveAttribute(
+    "readonly",
+    "",
+  );
+  await dialog.getByLabel("Etkin", { exact: true }).uncheck();
+  await save(page);
+  await section(page, "Malzemeler");
+  await page.getByRole("button", { name: "Düzenle", exact: true }).click();
+  await expect(
+    dialog.getByRole("combobox", {
+      name: "Kalite sınıfı (isteğe bağlı)",
+      exact: true,
+    }),
+  ).toHaveCount(0);
+  await dialog.getByLabel("Ad", { exact: true }).fill("Kabul malzemesi güncel");
+  await save(page);
+  await expect(page.getByRole("table")).toContainText("Kalite sınıfı (arşiv)");
+  await expect(page.getByRole("table")).toContainText("0.123456");
   await section(page, "Roller ve izinler");
   await page.getByRole("button", { name: "Rol oluştur", exact: true }).click();
   await dialog

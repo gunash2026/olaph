@@ -6,6 +6,9 @@ export type Field = {
   relation?: string;
   optional?: boolean;
   readOnly?: boolean;
+  defaultValue?: string | number | boolean;
+  custom?: boolean;
+  maxLength?: number;
 };
 export type PortalResource = {
   title: string;
@@ -14,6 +17,7 @@ export type PortalResource = {
   fields: Field[];
   readOnly?: boolean;
   immutable?: boolean;
+  writePermission?: string;
 };
 export function permissionLabel(permission: string) {
   const [area, action] = permission.split(":");
@@ -338,6 +342,28 @@ export const portalResources: Record<string, PortalResource> = {
     readOnly: true,
     fields: [],
   },
+  "custom-fields": {
+    title: "Özel alanlar",
+    group: "Yönetim",
+    permission: "catalog",
+    writePermission: "settings:write",
+    fields: [
+      choices("entity", "Kart türü", ["materials", "products", "partners"]),
+      f("key", "Alan kodu"),
+      f("label", "Görünen ad"),
+      choices("kind", "Alan türü", [
+        "text",
+        "decimal",
+        "boolean",
+        "date",
+        "select",
+      ]),
+      { ...f("required", "Zorunlu", "checkbox"), defaultValue: false },
+      { ...f("active", "Etkin", "checkbox"), defaultValue: true },
+      f("options", "Seçenekler (her satıra bir seçenek)", "lines", true),
+      { ...f("position", "Sıra", "number"), defaultValue: 0 },
+    ],
+  },
   roles: {
     title: "Roller ve izinler",
     group: "Yönetim",
@@ -383,6 +409,14 @@ export const portalResources: Record<string, PortalResource> = {
   },
 };
 export const valueLabels: Record<string, string> = {
+  materials: "Malzeme",
+  products: "Ürün",
+  partners: "İş ortağı",
+  text: "Metin",
+  decimal: "Ondalık sayı",
+  boolean: "Evet / hayır",
+  date: "Tarih",
+  select: "Seçim listesi",
   in: "Giriş",
   out: "Çıkış",
   customer: "Müşteri",
@@ -422,6 +456,12 @@ export const valueLabels: Record<string, string> = {
   consumed: "Kullanıldı",
 };
 export const columnLabels: Record<string, string> = {
+  custom_fields: "Özel alanlar",
+  key: "Alan kodu",
+  label: "Görünen ad",
+  kind: "Tür",
+  options: "Seçenekler",
+  position: "Sıra",
   id: "Kayıt",
   tenant_id: "Firma",
   name: "Ad",

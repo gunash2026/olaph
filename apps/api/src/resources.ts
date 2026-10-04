@@ -15,7 +15,8 @@ const json = z
     z.string(),
     z.union([z.string().max(500), z.number().finite(), z.boolean(), z.null()]),
   )
-  .default({});
+  .refine((value) => Object.keys(value).length <= 100, "Too many custom fields")
+  .optional();
 const currency = z.enum(["TRY", "USD", "EUR", "GBP"]);
 const price = z.string().regex(/^\d{1,12}(\.\d{1,4})?$/);
 type Resource = {
@@ -24,8 +25,29 @@ type Resource = {
   schema: z.ZodObject;
   readonly?: boolean;
   immutable?: boolean;
+  writePermission?: string;
+  critical?: boolean;
 };
 export const resources: Record<string, Resource> = {
+  "custom-fields": {
+    table: "custom_field_definitions",
+    permission: "catalog",
+    writePermission: "settings:write",
+    critical: true,
+    schema: z.object({
+      entity: z.enum(["materials", "products", "partners"]),
+      key: z
+        .string()
+        .regex(/^[a-z][a-z0-9_]{0,39}$/)
+        .refine((value) => !["constructor", "prototype"].includes(value)),
+      label: z.string().trim().min(1).max(80),
+      kind: z.enum(["text", "decimal", "boolean", "date", "select"]),
+      required: z.boolean().default(false),
+      active: z.boolean().default(true),
+      options: z.array(z.string().trim().min(1).max(80)).max(50).default([]),
+      position: z.number().int().min(0).max(999).default(0),
+    }),
+  },
   materials: {
     table: "materials",
     permission: "catalog",

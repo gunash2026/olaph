@@ -491,6 +491,23 @@
   height: 22px;
   accent-color: var(--copper);
 }
+.portal-custom-values {
+  margin: 0;
+  min-width: 150px;
+  max-width: 300px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.portal-custom-values > div + div {
+  margin-top: 10px;
+}
+.portal-custom-values dt {
+  font-size: 11px;
+  color: #676d64;
+}
+.portal-custom-values dd {
+  margin: 3px 0 0;
+}
 .portal-label-dialog,
 .portal-scan-dialog {
   display: none;

@@ -142,7 +142,12 @@ export class ApiController {
   ) {
     const item = resource(name);
     if (item.readonly) throw new ForbiddenException("READ_ONLY");
-    const current = await access(req, tenant, `${item.permission}:write`),
+    const current = await access(
+        req,
+        tenant,
+        item.writePermission || `${item.permission}:write`,
+        item.critical,
+      ),
       input: Record<string, unknown> = item.schema.strict().parse(body);
     if (name === "privacy-requests") input.user_id = current.user.id;
     return transaction(current.user.id, tenant, async (db) => {
@@ -151,7 +156,14 @@ export class ApiController {
       return (
         await db.query(
           `INSERT INTO ${item.table}(tenant_id,${keys.join(",")}) VALUES($1,${keys.map((_, i) => `$${i + 2}`).join(",")}) RETURNING *`,
-          [tenant, ...keys.map((key) => input[key])],
+          [
+            tenant,
+            ...keys.map((key) =>
+              key === "options" && name === "custom-fields"
+                ? JSON.stringify(input[key])
+                : input[key],
+            ),
+          ],
         )
       ).rows[0];
     });
@@ -166,7 +178,12 @@ export class ApiController {
     const item = resource(name);
     if (item.readonly || item.immutable)
       throw new ForbiddenException("WORKFLOW_REQUIRED");
-    const current = await access(req, tenant, `${item.permission}:write`),
+    const current = await access(
+        req,
+        tenant,
+        item.writePermission || `${item.permission}:write`,
+        item.critical,
+      ),
       input: Record<string, unknown> = item.schema.strict().parse(body);
     id.parse(record);
     return transaction(current.user.id, tenant, async (db) => {
@@ -174,13 +191,36 @@ export class ApiController {
       const keys = Object.keys(input),
         row = (
           await db.query(
-            `UPDATE ${item.table} SET ${keys.map((key, i) => `${key}=$${i + 2}`).join(",")} WHERE id=$1 RETURNING *`,
-            [record, ...keys.map((key) => input[key])],
+            `UPDATE ${item.table} SET ${keys.map((key, i) => (key === "custom_fields" ? `custom_fields=custom_fields || $${i + 2}::jsonb` : `${key}=$${i + 2}`)).join(",")} WHERE id=$1 RETURNING *`,
+            [
+              record,
+              ...keys.map((key) =>
+                key === "options" && name === "custom-fields"
+                  ? JSON.stringify(input[key])
+                  : input[key],
+              ),
+            ],
           )
         ).rows[0];
       if (!row) throw new NotFoundException();
       return row;
     });
+  }
+  @Get("workspaces/:tenant/custom-fields/:entity") async customFields(
+    @Req() req: Request,
+    @Param("tenant") tenant: string,
+    @Param("entity") entity: string,
+  ) {
+    const current = await access(req, tenant, "catalog:read");
+    const target = z.enum(["materials", "products", "partners"]).parse(entity);
+    return transaction(current.user.id, tenant, async (db) => ({
+      items: (
+        await db.query(
+          "SELECT * FROM custom_field_definitions WHERE entity=$1 ORDER BY position,label,id",
+          [target],
+        )
+      ).rows,
+    }));
   }
   @Get("workspaces/:tenant/material-lookup") async materialLookup(
     @Req() req: Request,

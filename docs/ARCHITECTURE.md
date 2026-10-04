@@ -1,5 +1,9 @@
 # Mimari
 
+Firma tanımlı özel alanlar `custom_field_definitions` tablosunda malzeme, ürün ve iş ortağı kapsamıyla tutulur. Katalog okuyucuları tanımları okuyabilir; tanım yazımı ayar yetkisi, MFA kapsamı, yeniden doğrulama ve geçerli abonelik gerektirir. Kod/kart türü/alan türü değişmez. Metin, string olarak taşınan tam ondalık sayı (12+6 basamak), boolean, gerçek takvim tarihi ve sınırlı seçim listesi PostgreSQL tetikleyicisinde denetlenir. Tanım değişiklikleri mevcut kartları geçersiz kılamaz. Her kart türü için 50 etkin, toplam 200 alan; her seçim için 50 seçenek sınırı vardır. Tanım ve kart yazımları aynı firma/kart türü kilidini kullanarak eşzamanlı doğrulama atlamasını engeller.
+
+API kart güncellemelerinde gönderilen özel alanları mevcut JSONB ile atomik olarak birleştirir; atlanmış alanlar silinmez. Etkin bir alanı temizlemek için null gönderilir. Arşivlenen ve önceki sürümden gelen tanımsız değerler değiştirilmeden korunur; etiketli değerler tabloda ve JSON biçiminde Excel dışa aktarımında bulunur. Firma yeni alanlarla boş başlar. Özel alan tanımları ve değer değişiklikleri denetim kaydına girer; API dışında doğrudan uygulama rolüyle yazıldığında da doğrulama çalışır.
+
 `apps/web` statik dışa aktarılan Next.js tanıtım, demo ve portal arayüzüdür. `apps/api` NestJS uygulama API'si, `apps/worker` BullMQ/Valkey bildirim işçisi, `apps/cms` Payload içerik yönetimidir. `packages/database/migrations` veritabanının güncel kaynağıdır; temel Drizzle şeması tüm operasyon tablolarını temsil etmez. `packages/core` ortak doğrulama, hesap ve izin tanımlarını içerir.
 
 Firma verisi tutan her tablo `tenant_id` taşır. Firma içi ilişkiler `(tenant_id, id)` çift anahtarına bağlanır. `olaph_runtime` süper kullanıcı değildir ve RLS atlama yetkisi yoktur. Başlangıç migration'ı ayrı yetkili kullanıcıyla uygulanır; uygulama migration sahibinin bağlantısını kullanamaz. Runtime rolüne giriş ve parola atanması dağıtım sırrı yönetiminde gerçekleştirilir.

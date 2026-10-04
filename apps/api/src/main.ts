@@ -35,7 +35,7 @@ class ApiErrors implements ExceptionFilter {
       response.status(error.getStatus()).json({ message: error.message });
       return;
     }
-    const sql = error as { code?: string; message?: string },
+    const sql = error as { code?: string; message?: string; detail?: string },
       allowed = [
         "INSUFFICIENT_AVAILABLE_STOCK",
         "RECIPE_CYCLE",
@@ -49,6 +49,14 @@ class ApiErrors implements ExceptionFilter {
         "STOCK_OWNER_MISMATCH",
         "OWNER_CHANGE_REQUIRES_EMPTY_WAREHOUSE",
         "INVALID_STOCK_TRANSFER",
+        "CUSTOM_FIELD_REQUIRED",
+        "CUSTOM_FIELD_VALUE_INVALID",
+        "CUSTOM_FIELD_NOT_ACTIVE",
+        "CUSTOM_FIELD_IDENTITY_IMMUTABLE",
+        "CUSTOM_FIELD_EXISTING_VALUES_INVALID",
+        "CUSTOM_FIELD_LIMIT",
+        "INVALID_CUSTOM_FIELD_DEFINITION",
+        "INVALID_CUSTOM_FIELDS",
         "UNIT_CONVERSION_NOT_FOUND",
         "CONVERTED_QUANTITY_OUT_OF_RANGE",
         "INVALID_STOCK_CONVERSION",
@@ -79,7 +87,14 @@ class ApiErrors implements ExceptionFilter {
       return;
     }
     if (allowed.includes(sql.message || "")) {
-      response.status(409).json({ message: sql.message });
+      response
+        .status(409)
+        .json({
+          message: sql.message,
+          ...(sql.detail && /^[a-z][a-z0-9_]{0,39}$/.test(sql.detail)
+            ? { field: sql.detail }
+            : {}),
+        });
       return;
     }
     console.error("Request failed", {

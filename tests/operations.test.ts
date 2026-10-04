@@ -20,6 +20,7 @@ beforeAll(async () => {
     "0008_stock_transfers",
     "0009_purchase_entitlement",
     "0010_material_units",
+    "0011_custom_fields",
   ])
     await db.exec(
       await readFile(`packages/database/migrations/${name}.sql`, "utf8"),
