@@ -1,0 +1,10 @@
+packages:
+  - apps/*
+  - packages/*
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - "@nestjs/core"
+overrides:
+  "undici@>=7.0.0 <7.29.1": "7.29.1"
+  "sass@1.77.4": "1.105.1"

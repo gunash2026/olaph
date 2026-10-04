@@ -1,0 +1,184 @@
+name: olaph-app
+x-api-environment: &api-environment
+  NODE_ENV: ${NODE_ENV:-development}
+  APP_URL: ${APP_URL:-http://localhost:8080}
+  BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Required}
+  DATABASE_URL: postgresql://olaph_login:${APP_DB_PASSWORD:?Required}@postgres:5432/olaph
+  AUTH_DATABASE_URL: postgresql://olaph_auth:${AUTH_DB_PASSWORD:?Required}@postgres:5432/olaph
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  MAIL_FROM: ${MAIL_FROM:-OLAPH <noreply@localhost>}
+  CLAMAV_HOST: clamav
+  TURNSTILE_SECRET: ${TURNSTILE_SECRET:-}
+  HOST: 0.0.0.0
+x-cms-environment: &cms-environment
+  NODE_ENV: production
+  CMS_PUBLIC_URL: ${CMS_PUBLIC_URL:-http://localhost:3100}
+  CMS_DATABASE_URL: postgresql://olaph_cms:${CMS_DB_PASSWORD:?Required}@postgres:5432/olaph
+  PAYLOAD_SECRET: ${PAYLOAD_SECRET:?Required}
+  SMTP_HOST: ${SMTP_HOST:-mailpit}
+  SMTP_PORT: ${SMTP_PORT:-1025}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  CMS_MAIL_FROM: ${CMS_MAIL_FROM:-noreply@localhost}
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: olaph
+      POSTGRES_USER: olaph_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Required}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Required}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Required}
+      WORKER_DB_PASSWORD: ${WORKER_DB_PASSWORD:?Required}
+      CMS_DB_PASSWORD: ${CMS_DB_PASSWORD:?Required}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./deploy/init-database.sh:/docker-entrypoint-initdb.d/01-roles.sh:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U olaph_owner -d olaph]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  migrate:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: api
+    environment:
+      <<: *api-environment
+      MIGRATION_DATABASE_URL: postgresql://olaph_owner:${POSTGRES_PASSWORD}@postgres:5432/olaph
+    command: [node, dist/migrate.js]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  api:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: api
+    environment: *api-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      mailpit:
+        condition: service_started
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    healthcheck:
+      test:
+        [
+          CMD,
+          node,
+          -e,
+          "fetch('http://localhost:4000/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+  valkey:
+    image: valkey/valkey:8-alpine
+    environment:
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?Required}
+    command:
+      [
+        sh,
+        -c,
+        'exec valkey-server --requirepass "$${VALKEY_PASSWORD}" --appendonly yes --maxmemory-policy noeviction',
+      ]
+    volumes: [valkey-data:/data]
+    healthcheck:
+      test:
+        [
+          CMD-SHELL,
+          'REDISCLI_AUTH="$${VALKEY_PASSWORD}" valkey-cli ping | grep PONG',
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+  cms-migrate:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: cms
+    environment: *cms-environment
+    command: [node, node_modules/payload/bin.js, migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+  cms:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: cms
+    environment: *cms-environment
+    ports: ["127.0.0.1:3100:3100"]
+    depends_on:
+      cms-migrate:
+        condition: service_completed_successfully
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  worker:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: worker
+    environment:
+      WORKER_DATABASE_URL: postgresql://olaph_worker_login:${WORKER_DB_PASSWORD:?Required}@postgres:5432/olaph
+      VALKEY_HOST: valkey
+      VALKEY_PASSWORD: ${VALKEY_PASSWORD:?Required}
+      SMTP_HOST: ${SMTP_HOST:-mailpit}
+      SMTP_PORT: ${SMTP_PORT:-1025}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-OLAPH <noreply@localhost>}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      valkey:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    restart: unless-stopped
+  web:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+      target: web
+      args:
+        SITE_URL: ${APP_URL:-http://localhost:8080}
+        TURNSTILE_SITE_KEY: ${TURNSTILE_SITE_KEY:-}
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    ports: ["127.0.0.1:8080:80"]
+    volumes: [caddy-data:/data, caddy-config:/config]
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+  mailpit:
+    image: axllent/mailpit:v1.27
+    ports: ["127.0.0.1:8025:8025"]
+    restart: unless-stopped
+  clamav:
+    image: clamav/clamav:1.4
+    volumes: [clam-data:/var/lib/clamav]
+    restart: unless-stopped
+volumes:
+  pg-data:
+  caddy-data:
+  caddy-config:
+  clam-data:
+  valkey-data:

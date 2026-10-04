@@ -1,0 +1,17 @@
+{
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".next/**", "out/**", "dist/**"],
+      "env": [
+        "NEXT_PUBLIC_BASE_PATH",
+        "NEXT_PUBLIC_SITE_URL",
+        "NEXT_PUBLIC_APP_ENABLED",
+        "NEXT_PUBLIC_TURNSTILE_SITE_KEY",
+        "PAYLOAD_SECRET",
+        "CMS_DATABASE_URL"
+      ]
+    },
+    "typecheck": { "dependsOn": ["^typecheck"] }
+  }
+}

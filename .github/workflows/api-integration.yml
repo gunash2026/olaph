@@ -1,0 +1,111 @@
+name: API integration
+on:
+  push:
+    branches: [main, "feat/**"]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  postgres-auth:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: olaph_owner
+          POSTGRES_PASSWORD: ci-disposable-password
+          POSTGRES_DB: olaph
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U olaph_owner -d olaph"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+      mailpit:
+        image: axllent/mailpit:v1.27
+        ports: ["1025:1025", "8025:8025"]
+    env:
+      NODE_ENV: test
+      APP_URL: http://127.0.0.1:4000
+      BETTER_AUTH_SECRET: ci-only-identity-secret-never-deployed-2026
+      DATABASE_URL: postgresql://olaph_login:ci-app@127.0.0.1:5432/olaph
+      AUTH_DATABASE_URL: postgresql://olaph_auth:ci-auth@127.0.0.1:5432/olaph
+      MIGRATION_DATABASE_URL: postgresql://olaph_owner:ci-disposable-password@127.0.0.1:5432/olaph
+      SMTP_HOST: 127.0.0.1
+      SMTP_PORT: "1025"
+      PGPASSWORD: ci-disposable-password
+      POSTGRES_USER: olaph_owner
+      POSTGRES_DB: olaph
+      PGHOST: 127.0.0.1
+      APP_DB_PASSWORD: ci-app
+      AUTH_DB_PASSWORD: ci-auth
+      WORKER_DB_PASSWORD: ci-worker
+      CMS_DB_PASSWORD: ci-cms
+      WORKER_DATABASE_URL: postgresql://olaph_worker_login:ci-worker@127.0.0.1:5432/olaph
+      CMS_DATABASE_URL: postgresql://olaph_cms:ci-cms@127.0.0.1:5432/olaph
+      PAYLOAD_SECRET: ci-only-content-secret-never-deployed-2026
+      VALKEY_HOST: 127.0.0.1
+      VALKEY_PASSWORD: ci-valkey
+      MAIL_FROM: OLAPH <noreply@example.test>
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: sh deploy/init-database.sh
+      - name: Verify database provisioning is repeatable
+        run: sh deploy/init-database.sh
+      - run: pnpm --filter @olaph/api build
+      - run: pnpm --filter @olaph/api migrate
+      - run: pnpm --filter @olaph/worker build
+      - name: Start private notification queue
+        run: docker run --detach --name olaph-valkey --publish 127.0.0.1:6379:6379 valkey/valkey:8-alpine valkey-server --requirepass ci-valkey --appendonly yes --maxmemory-policy noeviction
+      - name: Start API and verify real PostgreSQL workflows
+        run: |
+          node apps/api/dist/main.js > api-test.log 2>&1 &
+          API_PID=$!
+          node apps/worker/dist/main.js > worker-test.log 2>&1 &
+          WORKER_PID=$!
+          trap 'kill "$API_PID" "$WORKER_PID" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4000/api/ready >/dev/null; then break; fi
+            sleep 1
+          done
+          node scripts/test-live-api.mjs
+      - run: pnpm --filter @olaph/cms migrate
+      - run: pnpm --filter @olaph/cms test:integration
+      - name: Build the connected portal
+        run: pnpm --filter @olaph/web build
+        env:
+          NODE_ENV: production
+          NEXT_PUBLIC_APP_ENABLED: "true"
+          NEXT_PUBLIC_SITE_URL: http://127.0.0.1:3000
+      - run: pnpm exec playwright install --with-deps chromium
+      - name: Verify desktop and mobile portal in Chromium
+        env:
+          APP_URL: http://127.0.0.1:3000
+          TEST_APP_URL: http://127.0.0.1:3000
+        run: |
+          node apps/api/dist/main.js > browser-api-test.log 2>&1 &
+          API_PID=$!
+          node scripts/serve-portal-preview.mjs > browser-web-test.log 2>&1 &
+          WEB_PID=$!
+          trap 'kill "$API_PID" "$WEB_PID" || true' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3000/api/ready >/dev/null; then break; fi
+            sleep 1
+          done
+          pnpm test:browser
+      - name: Browser report and verified screen captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: olaph-browser-report
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+      - name: Diagnostics on failure
+        if: failure()
+        run: tail -n 80 api-test.log worker-test.log browser-api-test.log browser-web-test.log || true

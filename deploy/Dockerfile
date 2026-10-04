@@ -1,0 +1,42 @@
+FROM node:22-alpine AS build
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
+WORKDIR /app
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml turbo.json tsconfig.base.json ./
+COPY apps ./apps
+COPY packages ./packages
+RUN pnpm install --frozen-lockfile
+ARG SITE_URL=http://localhost:8080
+ARG TURNSTILE_SITE_KEY=
+ENV NEXT_PUBLIC_SITE_URL=$SITE_URL NEXT_PUBLIC_APP_ENABLED=true
+ENV NEXT_PUBLIC_TURNSTILE_SITE_KEY=$TURNSTILE_SITE_KEY
+RUN pnpm --filter @olaph/api build && pnpm --filter @olaph/worker build && pnpm --filter @olaph/web build
+
+FROM build AS cms-build
+RUN PAYLOAD_SECRET=build-only-not-a-runtime-secret CMS_DATABASE_URL=postgresql://build:build@127.0.0.1:5432/build pnpm --filter @olaph/cms build
+
+FROM node:22-alpine AS cms
+ENV NODE_ENV=production
+WORKDIR /app
+COPY --from=cms-build --chown=node:node /app /app
+USER node
+WORKDIR /app/apps/cms
+EXPOSE 3100
+CMD ["node","node_modules/next/dist/bin/next","start","--port","3100","--hostname","0.0.0.0"]
+
+FROM node:22-alpine AS api
+ENV NODE_ENV=production HOST=0.0.0.0
+WORKDIR /app
+COPY --from=build --chown=node:node /app /app
+USER node
+WORKDIR /app/apps/api
+EXPOSE 4000
+CMD ["node","dist/main.js"]
+
+FROM api AS worker
+WORKDIR /app/apps/worker
+CMD ["node","dist/main.js"]
+
+FROM caddy:2-alpine AS web
+COPY --from=build /app/apps/web/out /srv
+COPY deploy/Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80 443
